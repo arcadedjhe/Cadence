@@ -433,6 +433,132 @@ function BlockCard({ block, items, onValidate }) {
   );
 }
 
+// ─── OFF / ALTERNATIF VIEWS ──────────────────────────────────────────────────
+function OffTotalView() {
+  return (
+    <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+      <div style={{ fontSize: 64, marginBottom: 16 }}>🚫</div>
+      <div style={{ fontSize: 20, color: '#f0e6d0', fontFamily: "'Playfair Display', serif", marginBottom: 8 }}>Journée off total</div>
+      <div style={{ fontSize: 14, color: '#555', lineHeight: 1.7 }}>Pas de musique aujourd'hui.<br/>L'app reprend normalement demain.</div>
+    </div>
+  );
+}
+
+function AlternatifView({ sessions, setSessions }) {
+  const todaySession = sessions.find(s => s.date === TODAY);
+  const periodId = todaySession?.periodId;
+  const periodSessions = periodId ? sessions.filter(s => s.periodId === periodId && s.type === 'alternatif') : [todaySession].filter(Boolean);
+  const periodDays = todaySession?.periodDays || 1;
+  const budget = periodDays * 10;
+  const totalSpent = periodSessions.reduce((a, s) => a + (s.timeSpent || 0), 0);
+  const remaining = Math.max(0, budget - totalSpent);
+  const done = totalSpent >= budget;
+
+  const [manualMin, setManualMin] = useState('');
+  const [note, setNote] = useState(todaySession?.note || '');
+  const [timerSec, setTimerSec] = useState(remaining * 60);
+  const [running, setRunning] = useState(false);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (running) {
+      intervalRef.current = setInterval(() => {
+        setTimerSec(s => { if (s <= 0) { clearInterval(intervalRef.current); setRunning(false); return 0; } return s - 1; });
+      }, 1000);
+    } else clearInterval(intervalRef.current);
+    return () => clearInterval(intervalRef.current);
+  }, [running]);
+
+  const mm = String(Math.floor(timerSec / 60)).padStart(2, '0');
+  const ss = String(timerSec % 60).padStart(2, '0');
+  const pct = Math.min(1, totalSpent / budget);
+
+  const addTime = (min) => {
+    const added = parseInt(min) || 0;
+    if (!added) return;
+    setSessions(prev => prev.map(s =>
+      s.date === TODAY ? { ...s, timeSpent: (s.timeSpent || 0) + added, note } : s
+    ));
+    setManualMin('');
+    setTimerSec(Math.max(0, (remaining - added) * 60));
+  };
+
+  const saveNote = () => {
+    setSessions(prev => prev.map(s => s.date === TODAY ? { ...s, note } : s));
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+        <span style={{ fontSize: 36 }}>🎒</span>
+        <div>
+          <div style={{ fontSize: 12, color: '#888', letterSpacing: 2, textTransform: 'uppercase' }}>Travail alternatif</div>
+          <div style={{ fontSize: 18, color: '#f0e6d0', fontFamily: "'Playfair Display', serif" }}>
+            {new Date(TODAY + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </div>
+        </div>
+      </div>
+
+      {/* Budget progress */}
+      <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 18, marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: '#888' }}>Budget période ({periodDays} jour{periodDays > 1 ? 's' : ''})</span>
+          <span style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: done ? '#5cba7d' : '#c9a84c' }}>{totalSpent}/{budget} min</span>
+        </div>
+        <div style={{ height: 6, background: 'rgba(255,255,255,0.07)', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+          <div style={{ height: '100%', width: (pct * 100) + '%', background: done ? '#5cba7d' : '#c9a84c', borderRadius: 3, transition: 'width 0.4s ease' }} />
+        </div>
+        {done
+          ? <div style={{ fontSize: 12, color: '#5cba7d' }}>🎉 Budget atteint — beau travail !</div>
+          : <div style={{ fontSize: 12, color: '#555' }}>Encore {remaining} min pour valider la période</div>
+        }
+      </div>
+
+      {/* Timer */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 14 }}>Minuteur</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ fontSize: 42, fontFamily: 'monospace', fontWeight: 700, color: running ? '#f0e6d0' : '#555', letterSpacing: 2 }}>{mm}:{ss}</div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={() => setRunning(r => !r)} style={{ width: 52, height: 52, borderRadius: 14, border: 'none', background: running ? 'rgba(224,92,92,0.15)' : 'rgba(201,168,76,0.15)', color: running ? '#e05c5c' : '#c9a84c', cursor: 'pointer', fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {running ? '⏸' : '▶'}
+            </button>
+            <button onClick={() => { setRunning(false); setTimerSec(remaining * 60); }} style={{ width: 52, height: 52, borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#555', cursor: 'pointer', fontSize: 20 }}>↺</button>
+          </div>
+        </div>
+        <button onClick={() => { const elapsed = Math.round((remaining * 60 - timerSec) / 60); if (elapsed > 0) addTime(elapsed); setRunning(false); }}
+          style={{ marginTop: 14, width: '100%', padding: '10px', background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)', borderRadius: 10, color: '#c9a84c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          ✓ Valider le temps du minuteur
+        </button>
+      </div>
+
+      {/* Manual entry */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 14 }}>Ajouter un temps manuellement</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[10, 15, 20, 30].map(v => (
+            <button key={v} onClick={() => setManualMin(String(v))} style={{ flex: 1, padding: '10px 4px', borderRadius: 10, border: '1px solid', fontSize: 13, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer', background: manualMin === String(v) ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)', borderColor: manualMin === String(v) ? '#c9a84c' : 'rgba(255,255,255,0.1)', color: manualMin === String(v) ? '#c9a84c' : '#888' }}>{v}'</button>
+          ))}
+          <input type="number" min="1" max="120" value={manualMin} onChange={e => setManualMin(e.target.value)}
+            style={{ width: 56, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px', color: '#f0e6d0', fontSize: 14, fontFamily: 'monospace', outline: 'none', textAlign: 'center' }} />
+        </div>
+        <button onClick={() => addTime(manualMin)} disabled={!manualMin}
+          style={{ marginTop: 12, width: '100%', padding: '11px', background: manualMin ? '#c9a84c' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 10, color: manualMin ? '#1a1a18' : '#555', fontWeight: 700, fontSize: 14, cursor: manualMin ? 'pointer' : 'default' }}>
+          + Ajouter {manualMin ? manualMin + ' min' : ''}
+        </button>
+      </div>
+
+      {/* Note */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 20 }}>
+        <div style={{ fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>Ce que tu as fait</div>
+        <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Synthé, lecture, théorie, écoute active..." rows={3}
+          style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 12px', color: '#c8bfa8', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }} />
+        <button onClick={saveNote} style={{ marginTop: 10, padding: '8px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#888', cursor: 'pointer', fontSize: 12 }}>Enregistrer la note</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── TODAY VIEW ───────────────────────────────────────────────────────────────
 function TodayView({ items, settings, sessions, setSessions, setItems }) {
   const existing = sessions.find(s => s.date === TODAY);
@@ -441,6 +567,11 @@ function TodayView({ items, settings, sessions, setSessions, setItems }) {
   const thisWeek = getWeekKey();
   const jokerUsed = sessions.some(s => s.weekKey === thisWeek && s.joker && s.date !== TODAY);
   const isJoker = !!existing?.joker;
+  const isOff = existing?.type === 'off';
+  const isAlternatif = existing?.type === 'alternatif';
+
+  if (isOff) return <OffTotalView />;
+  if (isAlternatif) return <AlternatifView sessions={sessions} setSessions={setSessions} />;
 
   useEffect(() => {
     if (!generated && items.length > 0) {
@@ -758,9 +889,42 @@ function CalendarView({ sessions, setSessions }) {
   const days = [...Array(offset).fill(null), ...Array.from({length:daysInMonth},(_,i)=>i+1)];
 
   const getS = d => d ? sessions.find(s=>s.date===`${vm}-${String(d).padStart(2,'0')}`) : null;
-  const markAbsent = d => { const ds=`${vm}-${String(d).padStart(2,'0')}`; setSessions(p=>[...p.filter(s=>s.date!==ds),{date:ds,absent:true,catchupMin:10}]); setAbsent(null); };
   const prev = () => { const d=new Date(year,month-2,1); setVm(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); };
   const next = () => { const d=new Date(year,month,1); setVm(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); };
+
+  const [dayModal, setDayModal] = useState(null); // {d, dateStr, existing}
+  const [altDays, setAltDays] = useState(1); // number of days for alternatif period
+
+  const openModal = (d) => {
+    const dateStr = `${vm}-${String(d).padStart(2,'0')}`;
+    const existing = sessions.find(s => s.date === dateStr);
+    setDayModal({ d, dateStr, existing });
+    setAltDays(1);
+  };
+
+  const clearDay = (dateStr) => {
+    setSessions(p => p.filter(s => s.date !== dateStr));
+    setDayModal(null);
+  };
+
+  const markOff = (dateStr) => {
+    setSessions(p => [...p.filter(s => s.date !== dateStr), { date: dateStr, type: 'off', weekKey: getWeekKey(new Date(dateStr)) }]);
+    setDayModal(null);
+  };
+
+  const markAlternatif = (dateStr, nDays) => {
+    const periodId = 'alt_' + dateStr;
+    const budget = nDays * 10;
+    const startDate = new Date(dateStr + 'T12:00:00');
+    const newSessions = Array.from({ length: nDays }, (_, i) => {
+      const d = new Date(startDate); d.setDate(d.getDate() + i);
+      const ds = d.toISOString().slice(0, 10);
+      return { date: ds, type: 'alternatif', periodId, periodDays: nDays, budget, timeSpent: 0, note: '', weekKey: getWeekKey(d) };
+    });
+    const dates = newSessions.map(s => s.date);
+    setSessions(p => [...p.filter(s => !dates.includes(s.date)), ...newSessions]);
+    setDayModal(null);
+  };
 
   const totalWorked = sessions.filter(s=>s.validated).length;
   const totalMin = sessions.filter(s=>s.validated).reduce((a,s)=>a+(s.actualMin||0),0);
@@ -783,16 +947,20 @@ function CalendarView({ sessions, setSessions }) {
           const s=getS(d); const isToday=dateStr===TODAY; const isPast=dateStr<TODAY;
           let bg='rgba(255,255,255,0.03)', bc='rgba(255,255,255,0.07)', color='#666';
           if (s?.validated) { bg='rgba(92,186,125,0.15)'; bc='rgba(92,186,125,0.3)'; color='#5cba7d'; }
-          else if (s?.joker) { bg='rgba(201,168,76,0.08)'; bc='rgba(201,168,76,0.2)'; color='#c9a84c'; }
-          else if (s?.absent){ bg='rgba(224,92,92,0.1)'; bc='rgba(224,92,92,0.2)'; color='#e05c5c'; }
-          else if (isToday)  { bg='rgba(201,168,76,0.1)'; bc='rgba(201,168,76,0.4)'; color='#c9a84c'; }
+          else if (s?.joker)           { bg='rgba(201,168,76,0.08)'; bc='rgba(201,168,76,0.2)';  color='#c9a84c'; }
+          else if (s?.type==='off')     { bg='rgba(224,92,92,0.1)';   bc='rgba(224,92,92,0.25)';  color='#e05c5c'; }
+          else if (s?.type==='alternatif') { bg='rgba(123,156,223,0.1)'; bc='rgba(123,156,223,0.25)'; color='#7b9cdf'; }
+          else if (s?.absent)          { bg='rgba(224,92,92,0.1)';   bc='rgba(224,92,92,0.2)';   color='#e05c5c'; }
+          else if (isToday)            { bg='rgba(201,168,76,0.1)';  bc='rgba(201,168,76,0.4)';  color='#c9a84c'; }
           return (
-            <div key={i} onClick={() => { if(s&&(s.validated||s.absent||s.joker)) setSelected(d); else if(isPast&&!isToday&&!s) setAbsent(d); }}
-              style={{ borderRadius:10, padding:'6px 4px', textAlign:'center', background:bg, border:`1px solid ${bc}`, cursor:(s&&(s.validated||s.absent||s.joker))||(isPast&&!s)?'pointer':'default', minHeight:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2 }}>
+            <div key={i} onClick={() => { if(s&&s.validated) setSelected(d); else openModal(d); }}
+              style={{ borderRadius:10, padding:'6px 4px', textAlign:'center', background:bg, border:`1px solid ${bc}`, cursor:'pointer', minHeight:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2 }}>
               <span style={{ fontSize:13, fontWeight:isToday?700:400, color }}>{d}</span>
               {s?.validated && <span style={{ fontSize:9, color:'#5cba7d', fontFamily:'monospace' }}>{s.actualMin}'</span>}
-              {s?.absent    && <span style={{ fontSize:9, color:'#e05c5c' }}>abs</span>}
-              {s?.joker     && <span style={{ fontSize:11 }}>🃏</span>}
+              {s?.joker              && <span style={{ fontSize:11 }}>🃏</span>}
+              {s?.type==='off'       && <span style={{ fontSize:11 }}>🚫</span>}
+              {s?.type==='alternatif'&& <span style={{ fontSize:11 }}>🎒</span>}
+              {s?.absent && !s?.type && <span style={{ fontSize:9, color:'#e05c5c' }}>abs</span>}
             </div>
           );
         })}
@@ -811,8 +979,18 @@ function CalendarView({ sessions, setSessions }) {
               </div>
               <button onClick={() => setSelected(null)} style={{ background:'transparent', border:'1px solid rgba(255,255,255,0.12)', borderRadius:8, padding:'6px 12px', color:'#888', cursor:'pointer', fontSize:18 }}>×</button>
             </div>
-            {s?.absent && <div style={{ display:'flex', alignItems:'center', gap:10, color:'#e05c5c' }}><span style={{fontSize:20}}>🚫</span><span>Jour non travaillé</span></div>}
-            {s?.joker  && <div style={{ display:'flex', alignItems:'center', gap:10, color:'#c9a84c' }}><span style={{fontSize:24}}>🃏</span><div><div style={{fontWeight:700}}>Jour joker</div><div style={{fontSize:12,color:'#888',marginTop:2}}>Session annulée</div></div></div>}
+            {(s?.absent||s?.type==='off') && <div style={{ display:'flex', alignItems:'center', gap:10, color:'#e05c5c' }}><span style={{fontSize:24}}>🚫</span><div><div style={{fontWeight:700}}>Off total</div><div style={{fontSize:12,color:'#888',marginTop:2}}>Aucun travail musical possible</div></div></div>}
+            {s?.joker   && <div style={{ display:'flex', alignItems:'center', gap:10, color:'#c9a84c' }}><span style={{fontSize:24}}>🃏</span><div><div style={{fontWeight:700}}>Jour joker</div><div style={{fontSize:12,color:'#888',marginTop:2}}>Session annulée</div></div></div>}
+            {s?.type==='alternatif' && (
+              <div style={{ display:'flex', alignItems:'flex-start', gap:10, color:'#7b9cdf' }}>
+                <span style={{fontSize:24}}>🎒</span>
+                <div>
+                  <div style={{fontWeight:700}}>Travail alternatif</div>
+                  <div style={{fontSize:12,color:'#888',marginTop:2}}>Budget période : {s.budget} min · Fait ce jour : {s.timeSpent||0} min</div>
+                  {s.note && <div style={{fontSize:12,color:'#c8bfa8',marginTop:4,fontStyle:'italic'}}>{s.note}</div>}
+                </div>
+              </div>
+            )}
             {s?.validated && s.blocks && (
               <>
                 <div style={{ display:'flex', gap:10, marginBottom:14 }}>
@@ -846,12 +1024,54 @@ function CalendarView({ sessions, setSessions }) {
         );
       })()}
 
-      {absent && (
-        <div style={{ background:'rgba(224,92,92,0.1)', border:'1px solid rgba(224,92,92,0.3)', borderRadius:12, padding:16, marginBottom:16 }}>
-          <div style={{ color:'#f0e6d0', marginBottom:10 }}>Marquer le {absent} comme jour non travaillé ?</div>
-          <div style={{ display:'flex', gap:10 }}>
-            <button onClick={() => markAbsent(absent)} style={{ padding:'10px 18px', background:'#e05c5c', border:'none', borderRadius:10, color:'#fff', fontWeight:600, cursor:'pointer', fontSize:14 }}>Confirmer</button>
-            <button onClick={() => setAbsent(null)} style={{ padding:'10px 18px', background:'transparent', border:'1px solid rgba(255,255,255,0.12)', borderRadius:10, color:'#888', cursor:'pointer', fontSize:14 }}>Annuler</button>
+      {/* Day action modal */}
+      {dayModal && (
+        <div style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, padding:20, marginBottom:16 }}>
+          <div style={{ fontSize:15, color:'#f0e6d0', fontFamily:"'Playfair Display', serif", marginBottom:16, textTransform:'capitalize' }}>
+            {new Date(dayModal.dateStr+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}
+          </div>
+
+          {/* Current status if any */}
+          {dayModal.existing && (
+            <div style={{ fontSize:12, color:'#888', marginBottom:14, padding:'8px 12px', background:'rgba(255,255,255,0.03)', borderRadius:8 }}>
+              Actuellement : {dayModal.existing.type==='off'?'🚫 Off total':dayModal.existing.type==='alternatif'?'🎒 Travail alternatif':dayModal.existing.joker?'🃏 Joker':'—'}
+              <button onClick={() => clearDay(dayModal.dateStr)} style={{ marginLeft:12, fontSize:11, color:'#e05c5c', background:'transparent', border:'none', cursor:'pointer' }}>× Supprimer</button>
+            </div>
+          )}
+
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {/* Off total */}
+            <button onClick={() => markOff(dayModal.dateStr)} style={{ padding:'14px 16px', background:'rgba(224,92,92,0.1)', border:'1px solid rgba(224,92,92,0.25)', borderRadius:12, color:'#e05c5c', fontWeight:600, fontSize:14, cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:12 }}>
+              <span style={{fontSize:22}}>🚫</span>
+              <div>
+                <div style={{fontWeight:700}}>Off total</div>
+                <div style={{fontSize:11,opacity:0.7,marginTop:2}}>Impossible de travailler la musique</div>
+              </div>
+            </button>
+
+            {/* Alternatif */}
+            <div style={{ background:'rgba(123,156,223,0.08)', border:'1px solid rgba(123,156,223,0.2)', borderRadius:12, padding:'14px 16px' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+                <span style={{fontSize:22}}>🎒</span>
+                <div>
+                  <div style={{fontWeight:700,color:'#7b9cdf',fontSize:14}}>Travail alternatif</div>
+                  <div style={{fontSize:11,color:'#555',marginTop:2}}>Synthé, lecture, théorie — budget 10 min/jour</div>
+                </div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{fontSize:12,color:'#888'}}>Nombre de jours :</span>
+                <div style={{display:'flex',gap:6}}>
+                  {[1,2,3,4,5,6,7].map(n => (
+                    <button key={n} onClick={() => setAltDays(n)} style={{ width:32,height:32,borderRadius:8,border:'1px solid',fontSize:13,fontWeight:700,cursor:'pointer',background:altDays===n?'rgba(123,156,223,0.25)':'rgba(255,255,255,0.04)',borderColor:altDays===n?'#7b9cdf':'rgba(255,255,255,0.1)',color:altDays===n?'#7b9cdf':'#555' }}>{n}</button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => markAlternatif(dayModal.dateStr, altDays)} style={{ marginTop:12,width:'100%',padding:'10px',background:'rgba(123,156,223,0.15)',border:'1px solid rgba(123,156,223,0.3)',borderRadius:10,color:'#7b9cdf',fontWeight:700,fontSize:13,cursor:'pointer' }}>
+                Marquer {altDays} jour{altDays>1?'s':''} (budget : {altDays*10} min)
+              </button>
+            </div>
+
+            <button onClick={() => setDayModal(null)} style={{ padding:'10px',background:'transparent',border:'1px solid rgba(255,255,255,0.1)',borderRadius:10,color:'#555',cursor:'pointer',fontSize:13 }}>Annuler</button>
           </div>
         </div>
       )}
