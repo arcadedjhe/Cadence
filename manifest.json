@@ -2,7 +2,7 @@
   "name": "Cadence",
   "short_name": "Cadence",
   "description": "Journal de pratique musicale",
-  "start_url": "/cadence/",
+  "start_url": "/cadence/index.html",
   "scope": "/cadence/",
   "display": "standalone",
   "orientation": "portrait",
