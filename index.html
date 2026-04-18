@@ -485,6 +485,7 @@ function AlternatifView({ sessions, setSessions }) {
   const ss = String(timerSec % 60).padStart(2, '0');
   const pct = Math.min(1, totalSpent / budget);
 
+  const [timeAdded, setTimeAdded] = useState(null);
   const addTime = (min) => {
     const added = parseInt(min) || 0;
     if (!added) return;
@@ -493,10 +494,15 @@ function AlternatifView({ sessions, setSessions }) {
     ));
     setManualMin('');
     setTimerSec(Math.max(0, (remaining - added) * 60));
+    setTimeAdded(added);
+    setTimeout(() => setTimeAdded(null), 2000);
   };
 
+  const [noteSaved, setNoteSaved] = useState(false);
   const saveNote = () => {
     setSessions(prev => prev.map(s => s.date === TODAY ? { ...s, note } : s));
+    setNoteSaved(true);
+    setTimeout(() => setNoteSaved(false), 2000);
   };
 
   return (
@@ -524,6 +530,9 @@ function AlternatifView({ sessions, setSessions }) {
           ? <div style={{ fontSize: 12, color: '#5cba7d' }}>🎉 Budget atteint — beau travail !</div>
           : <div style={{ fontSize: 12, color: '#555' }}>Encore {remaining} min pour valider la période</div>
         }
+        {timeAdded && (
+          <div style={{ marginTop: 8, fontSize: 12, color: '#5cba7d', fontWeight: 600, transition: 'all 0.3s' }}>✓ +{timeAdded} min ajoutées !</div>
+        )}
       </div>
 
       {/* Timer */}
@@ -538,9 +547,10 @@ function AlternatifView({ sessions, setSessions }) {
             <button onClick={() => { setRunning(false); setTimerSec(remaining * 60); }} style={{ width: 52, height: 52, borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#555', cursor: 'pointer', fontSize: 20 }}>↺</button>
           </div>
         </div>
-        <button onClick={() => { const elapsed = Math.round((remaining * 60 - timerSec) / 60); if (elapsed > 0) addTime(elapsed); setRunning(false); }}
-          style={{ marginTop: 14, width: '100%', padding: '10px', background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)', borderRadius: 10, color: '#c9a84c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-          ✓ Valider le temps du minuteur
+        <button onClick={() => { const elapsed = Math.round((remaining * 60 - timerSec) / 60); if (elapsed > 0) { addTime(elapsed); setRunning(false); } }}
+          disabled={Math.round((remaining * 60 - timerSec) / 60) <= 0}
+          style={{ marginTop: 14, width: '100%', padding: '10px', background: Math.round((remaining * 60 - timerSec) / 60) > 0 ? 'rgba(201,168,76,0.1)' : 'rgba(255,255,255,0.03)', border: '1px solid', borderColor: Math.round((remaining * 60 - timerSec) / 60) > 0 ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.08)', borderRadius: 10, color: Math.round((remaining * 60 - timerSec) / 60) > 0 ? '#c9a84c' : '#444', fontWeight: 600, fontSize: 13, cursor: Math.round((remaining * 60 - timerSec) / 60) > 0 ? 'pointer' : 'default' }}>
+          ✓ Valider le temps du minuteur ({Math.max(0, Math.round((remaining * 60 - timerSec) / 60))} min)
         </button>
       </div>
 
@@ -565,7 +575,9 @@ function AlternatifView({ sessions, setSessions }) {
         <div style={{ fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>Ce que tu as fait</div>
         <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Synthé, lecture, théorie, écoute active..." rows={3}
           style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 12px', color: '#c8bfa8', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }} />
-        <button onClick={saveNote} style={{ marginTop: 10, padding: '8px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#888', cursor: 'pointer', fontSize: 12 }}>Enregistrer la note</button>
+        <button onClick={saveNote} style={{ marginTop: 10, padding: '8px 16px', background: noteSaved ? 'rgba(92,186,125,0.15)' : 'rgba(255,255,255,0.06)', border: '1px solid', borderColor: noteSaved ? 'rgba(92,186,125,0.4)' : 'rgba(255,255,255,0.12)', borderRadius: 8, color: noteSaved ? '#5cba7d' : '#888', cursor: 'pointer', fontSize: 12, transition: 'all 0.3s' }}>
+          {noteSaved ? '✓ Note enregistrée !' : 'Enregistrer la note'}
+        </button>
       </div>
     </div>
   );
