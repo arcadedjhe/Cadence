@@ -1068,7 +1068,7 @@ function LibraryView({ items, setItems }) {
                           <button onClick={() => togglePause(item.id)}
                             title={item.paused?'Reprendre':'Mettre en pause'}
                             style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#888', cursor: 'pointer', fontSize: 12, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {item.paused?'▷':'❙ ❙'}
+                            {item.paused?'▷':'❙ ❙'}
                           </button>
                           <button onClick={() => deleteItem(item.id)}
                             style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#e05c5c', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
