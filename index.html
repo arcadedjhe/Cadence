@@ -214,19 +214,19 @@ function generateSession(items, settings, sessions, dateStr) {
   };
   const sessionCap = settings.sessionCapMin || SESSION_MAX_MIN;
   const blocks = [];
-  const gamme = pickItem(items.filter(i => i.category === 'gammes' && i.isActive && !i.isFamily), dateStr, maxDaysUnseen);
+  const gamme = pickItem(items.filter(i => i.category === 'gammes' && i.isActive && !i.isGroup), dateStr, maxDaysUnseen);
   if (gamme) {
     const gammeFamily = gamme.parentId ? items.find(i => i.id === gamme.parentId) : null;
     blocks.push({ itemId: gamme.id, title: gamme.title, category: 'gammes', plannedMin: settings.gammesDailyMin, validated: false, familyName: gammeFamily?.title || null });
   }
 
-  const lang = pickItem(items.filter(i => i.category === 'langage_musical' && i.isActive && !i.isFamily), dateStr, maxDaysUnseen);
+  const lang = pickItem(items.filter(i => i.category === 'langage_musical' && i.isActive && !i.isGroup), dateStr, maxDaysUnseen);
   if (lang) {
     const langFamily = lang.parentId ? items.find(i => i.id === lang.parentId) : null;
     blocks.push({ itemId: lang.id, title: lang.title, category: 'langage_musical', plannedMin: Math.round(settings.techJazzWeeklyMin / settings.workDaysPerWeek), validated: false, familyName: langFamily?.title || null });
   }
 
-  const morceau = pickItem(items.filter(i => i.category === 'morceau' && i.isActive && !i.isFamily), dateStr, maxDaysUnseen);
+  const morceau = pickItem(items.filter(i => i.category === 'morceau' && i.isActive && !i.isGroup), dateStr, maxDaysUnseen);
   if (morceau) {
     const morceauFamily = morceau.parentId ? items.find(i => i.id === morceau.parentId) : null;
     blocks.push({ itemId: morceau.id, title: morceau.title, category: 'morceau', plannedMin: (MASTERY[morceau.mastery] || MASTERY.fragile).timeMin, validated: false, familyName: morceauFamily ? morceauFamily.title : null });
@@ -805,6 +805,7 @@ function ItemForm({ initial, onSave, onCancel }) {
 // ─── LIBRARY VIEW ─────────────────────────────────────────────────────────────
 function LibraryView({ items, setItems }) {
   const [adding, setAdding] = useState(false);
+  const [addingType, setAddingType] = useState(null); // 'item' | 'group'
   const [addingVariantTo, setAddingVariantTo] = useState(null); // parentId
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -816,7 +817,7 @@ function LibraryView({ items, setItems }) {
 
   const addItem = (form, parentId = null) => {
     const n = { ...form, id: Date.now().toString(), lastWorked: null, lastRevised: null };
-    if (parentId) { n.parentId = parentId; n.isFamily = false; }
+    if (parentId) { n.parentId = parentId; n.isGroup = false; }
     if (form.category !== 'morceau' && !parentId) n.isActive = true;
     if (parentId) { const parent = items.find(i => i.id === parentId); if (parent) n.isActive = parent.isActive; }
     setItems(p => [...p, n]);
@@ -851,8 +852,8 @@ function LibraryView({ items, setItems }) {
             </div>
             {/* Separate families and standalone items */}
             {(() => {
-              const families = catItems.filter(i => i.isFamily);
-              const standalone = catItems.filter(i => !i.isFamily && !i.parentId);
+              const families = catItems.filter(i => i.isGroup);
+              const standalone = catItems.filter(i => !i.isGroup && !i.parentId);
               const renderItem = (item, isVariant = false) => (
                 <div key={item.id}>
                   {editing?.id===item.id
@@ -890,6 +891,20 @@ function LibraryView({ items, setItems }) {
                           <button onClick={() => cycleFreq(item.id)} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', fontSize: 14, background: item.frequency==='priority'?'rgba(201,168,76,0.15)':item.frequency==='occasional'?'rgba(123,156,223,0.15)':'rgba(255,255,255,0.05)', borderColor: item.frequency==='priority'?'rgba(201,168,76,0.3)':item.frequency==='occasional'?'rgba(123,156,223,0.3)':'rgba(255,255,255,0.1)', color: item.frequency==='priority'?'#c9a84c':item.frequency==='occasional'?'#7b9cdf':'#555' }}>
                             {item.frequency==='priority'?'⭐':item.frequency==='occasional'?'🌙':'—'}
                           </button>
+                          {/* Group selector */}
+                          <select
+                            value={item.parentId || ''}
+                            onChange={e => {
+                              const parentId = e.target.value || null;
+                              setItems(p => p.map(i => i.id === item.id ? { ...i, parentId } : i));
+                            }}
+                            style={{ padding: '4px 6px', background: '#2a2a28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: item.parentId ? '#c9a84c' : '#555', fontSize: 11, cursor: 'pointer', outline: 'none', maxWidth: 90 }}
+                          >
+                            <option value=''>Sans groupe</option>
+                            {items.filter(i => i.isGroup && i.category === item.category).map(g => (
+                              <option key={g.id} value={g.id}>{g.title}</option>
+                            ))}
+                          </select>
                           <button onClick={() => setEditing(item)} style={{ padding: '5px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#888', cursor: 'pointer', fontSize: 13 }}>✎</button>
                           <button onClick={() => deleteItem(item.id)} style={{ padding: '5px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e05c5c', cursor: 'pointer', fontSize: 13 }}>×</button>
                         </div>
@@ -962,7 +977,35 @@ function LibraryView({ items, setItems }) {
         );
       })}
       {/* Add family button */}
-      {adding && <ItemForm onSave={f => { const n = {...f, isFamily: true, id: Date.now().toString(), lastWorked: null, lastRevised: null}; if(f.category!=='morceau') n.isActive=true; setItems(p=>[...p,n]); setAdding(false); }} onCancel={() => setAdding(false)} />}
+      {/* Add choice modal */}
+      {adding && (
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: '#888', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Que voulez-vous créer ?</div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+            <button onClick={() => { setAdding(false); setAddingType('item'); }} style={{ flex: 1, padding: '12px 8px', background: 'rgba(92,186,125,0.1)', border: '1px solid rgba(92,186,125,0.25)', borderRadius: 12, color: '#5cba7d', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>🎵</div>
+              Item seul
+            </button>
+            <button onClick={() => { setAdding(false); setAddingType('group'); }} style={{ flex: 1, padding: '12px 8px', background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)', borderRadius: 12, color: '#c9a84c', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>📁</div>
+              Groupe
+            </button>
+          </div>
+          <button onClick={() => setAdding(false)} style={{ width: '100%', padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#555', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+        </div>
+      )}
+      {addingType === 'item' && (
+        <ItemForm
+          onSave={f => { const n = {...f, id: Date.now().toString(), lastWorked: null, lastRevised: null}; if(f.category!=='morceau') n.isActive=true; setItems(p=>[...p,n]); setAddingType(null); }}
+          onCancel={() => setAddingType(null)}
+        />
+      )}
+      {addingType === 'group' && (
+        <ItemForm
+          onSave={f => { const n = {...f, isGroup: true, id: Date.now().toString(), lastWorked: null, lastRevised: null}; if(f.category!=='morceau') n.isActive=true; setItems(p=>[...p,n]); setAddingType(null); }}
+          onCancel={() => setAddingType(null)}
+        />
+      )}
     </div>
   );
 }
