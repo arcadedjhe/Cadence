@@ -62,6 +62,7 @@ const DEFAULT_SETTINGS = {
   maxDaysUnseenPriority: 5,
   maxDaysUnseenNormal: 12,
   maxDaysUnseenOccasional: 45,
+  weekStartDay: 4, // 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
 };
 
 const DEFAULT_ITEMS = [
@@ -159,10 +160,68 @@ function useStorage(key, defaultVal) {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function toDateStr(d) { return (d || new Date()).toISOString().slice(0, 10); }
-function getWeekKey(date) {
+function getWeekKey(date, weekStartDay = 4) {
   const d = new Date(date || new Date()); d.setHours(0,0,0,0);
-  const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff); return d.toISOString().slice(0, 10);
+  const day = d.getDay();
+  let diff = day - weekStartDay;
+  if (diff < 0) diff += 7;
+  d.setDate(d.getDate() - diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function getWeekDays(weekStartDay = 4) {
+  // Returns array of dateStr for the current week
+  const start = new Date(getWeekKey(new Date(), weekStartDay) + 'T12:00:00');
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start); d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+// Calculate catchup minutes for today based on missed days this week
+function calculateCatchup(sessions, settings, dateStr) {
+  const weekStartDay = settings.weekStartDay ?? 4;
+  const weekKey = getWeekKey(new Date(dateStr), weekStartDay);
+  const weekStart = new Date(weekKey + 'T12:00:00');
+
+  // Get all days of the week up to (not including) today
+  const today = new Date(dateStr + 'T12:00:00');
+  const pastDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart); d.setDate(d.getDate() + i);
+    if (d < today) pastDays.push(d.toISOString().slice(0, 10));
+  }
+
+  // Count missed days (no session, not off, not joker, not alternatif)
+  const EXEMPT_TYPES = ['off', 'alternatif'];
+  let missedDays = 0;
+  for (const ds of pastDays) {
+    const s = sessions.find(s => s.date === ds);
+    if (!s || (!s.validated && !s.joker && !EXEMPT_TYPES.includes(s.type))) {
+      missedDays++;
+    }
+  }
+
+  // Cap at 5 consecutive missed days
+  missedDays = Math.min(missedDays, 5);
+  if (missedDays === 0) return 0;
+
+  // Total debt = missed * (1/3 of daily target ~30min = 10min)
+  const dailyDebt = Math.round((settings.gammesDailyMin || 8) +
+    Math.round((settings.techJazzWeeklyMin || 35) / (settings.workDaysPerWeek || 6)) +
+    10); // ~25min base, 1/3 ≈ 8-10min
+  const totalDebt = missedDays * Math.round(dailyDebt / 3);
+
+  // Remaining days in week including today
+  const remainingDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart); d.setDate(d.getDate() + i);
+    const ds = d.toISOString().slice(0, 10);
+    if (ds >= dateStr) remainingDays.push(ds);
+  }
+
+  // Spread debt over remaining days
+  return remainingDays.length > 0 ? Math.round(totalDebt / remainingDays.length) : 0;
 }
 const TODAY = toDateStr();
 
@@ -213,6 +272,8 @@ function generateSession(items, settings, sessions, dateStr) {
     occasional: settings.maxDaysUnseenOccasional || MAX_DAYS_UNSEEN.occasional,
   };
   const sessionCap = settings.sessionCapMin || SESSION_MAX_MIN;
+  const catchupMin = calculateCatchup(sessions, settings, dateStr);
+  const hasCatchup = catchupMin > 0;
   const blocks = [];
   const gamme = pickItem(items.filter(i => i.category === 'gammes' && i.isActive && !i.isGroup && !i.paused), dateStr, maxDaysUnseen);
   if (gamme) {
@@ -240,14 +301,62 @@ function generateSession(items, settings, sessions, dateStr) {
   }
 
   let totalMin = blocks.reduce((a,b) => a+b.plannedMin, 0);
-  if (totalMin > sessionCap) {
+
+  // Apply session cap only when no catchup
+  if (!hasCatchup && totalMin > sessionCap) {
     const excess = totalMin - sessionCap;
     const scalable = blocks.filter(b => b.category !== 'gammes');
     const scalableTotal = scalable.reduce((a,b) => a+b.plannedMin, 0);
     if (scalableTotal > 0) scalable.forEach(b => { b.plannedMin = Math.max(5, Math.round(b.plannedMin * (1 - excess / scalableTotal))); });
     totalMin = blocks.reduce((a,b) => a+b.plannedMin, 0);
   }
-  return { blocks, totalMin, weekKey: getWeekKey(new Date(dateStr)), hasRevision: doRevision };
+
+  // Add catchup: extra item + spread remaining time
+  if (hasCatchup) {
+    const usedIds = new Set(blocks.map(b => b.itemId));
+
+    // Try 2nd morceau first, then 2nd langage musical, then 2nd gamme
+    const extraCandidates = [
+      ...items.filter(i => i.category==='morceau' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+      ...items.filter(i => i.category==='langage_musical' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+      ...items.filter(i => i.category==='gammes' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+    ];
+    const extraPools = [
+      items.filter(i => i.category==='morceau' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+      items.filter(i => i.category==='langage_musical' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+      items.filter(i => i.category==='gammes' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+    ];
+
+    let extraItem = null;
+    for (const pool of extraPools) {
+      extraItem = pickItem(pool, dateStr, maxDaysUnseen);
+      if (extraItem) break;
+    }
+
+    const catchupBlockMin = Math.round(catchupMin * 0.6);
+    const catchupSpreadMin = catchupMin - catchupBlockMin;
+
+    if (extraItem) {
+      const extraFamily = extraItem.parentId ? items.find(i => i.id === extraItem.parentId) : null;
+      blocks.push({
+        itemId: extraItem.id, title: extraItem.title, category: extraItem.category,
+        plannedMin: catchupBlockMin, validated: false,
+        familyName: extraFamily ? extraFamily.title : null, isCatchup: true
+      });
+    }
+
+    // Spread remaining catchup time on existing non-gammes blocks
+    const spreadBlocks = blocks.filter(b => !b.isCatchup && b.category !== 'gammes');
+    if (spreadBlocks.length > 0) {
+      const extra = Math.round(catchupSpreadMin / spreadBlocks.length);
+      spreadBlocks.forEach(b => { b.plannedMin += extra; });
+    }
+
+    totalMin = blocks.reduce((a,b) => a+b.plannedMin, 0);
+  }
+
+  const weekStartDay = settings.weekStartDay ?? 4;
+  return { blocks, totalMin, weekKey: getWeekKey(new Date(dateStr), weekStartDay), hasRevision: doRevision, catchupMin: hasCatchup ? catchupMin : 0 };
 }
 
 // ─── IMAGE GALLERY ────────────────────────────────────────────────────────────
@@ -348,7 +457,10 @@ function BlockCard({ block, items, onValidate }) {
         </button>
         <span style={{ fontSize: 22 }}>{cat.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: done ? '#5cba7d' : cat.color, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 1 }}>{cat.label}{block.familyName ? <span style={{ color: '#555', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>· {block.familyName}</span> : ''}</div>
+          <div style={{ fontSize: 11, color: done ? '#5cba7d' : cat.color, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 1 }}>
+            {cat.label}{block.familyName ? <span style={{ color: '#555', fontWeight: 400, marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>· {block.familyName}</span> : ''}
+            {block.isCatchup && <span style={{ color: '#7b9cdf', fontWeight: 600, fontSize: 10, marginLeft: 8, letterSpacing: 0.5, textTransform: 'none' }}>🔄 rattrapage</span>}
+          </div>
           <div style={{ fontSize: 14, color: done ? '#7abf96' : '#f0e6d0' }}>{block.title}</div>
           {done && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
@@ -597,7 +709,7 @@ function TodayView({ items, settings, sessions, setSessions, setItems }) {
   const existing = sessions.find(s => s.date === TODAY);
   const [session, setSession] = useState(existing || null);
   const [generated, setGenerated] = useState(!!existing);
-  const thisWeek = getWeekKey();
+  const thisWeek = getWeekKey(new Date(), settings?.weekStartDay ?? 4);
   const jokerUsed = sessions.some(s => s.weekKey === thisWeek && s.joker && s.date !== TODAY);
   const isJoker = !!existing?.joker;
   const isOff = existing?.type === 'off';
@@ -664,6 +776,17 @@ function TodayView({ items, settings, sessions, setSessions, setItems }) {
           </div>
         )}
       </div>
+
+      {/* Catchup banner */}
+      {!isJoker && session?.catchupMin > 0 && (
+        <div style={{ background: 'rgba(123,156,223,0.08)', border: '1px solid rgba(123,156,223,0.2)', borderRadius: 12, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 22 }}>🔄</span>
+          <div>
+            <div style={{ color: '#7b9cdf', fontWeight: 700, fontSize: 14 }}>Session de rattrapage</div>
+            <div style={{ color: '#888', fontSize: 12, marginTop: 2 }}>+{session.catchupMin} min · un exercice supplémentaire a été ajouté</div>
+          </div>
+        </div>
+      )}
 
       {!isJoker && totalCount > 0 && (
         <div style={{ marginBottom: 20 }}>
@@ -945,7 +1068,7 @@ function LibraryView({ items, setItems }) {
                           <button onClick={() => togglePause(item.id)}
                             title={item.paused?'Reprendre':'Mettre en pause'}
                             style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#888', cursor: 'pointer', fontSize: 12, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {item.paused?'▷':'❙ ❙'}
+                            {item.paused?'▷':'❙ ❙'}
                           </button>
                           <button onClick={() => deleteItem(item.id)}
                             style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#e05c5c', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
@@ -1322,6 +1445,22 @@ function SettingsView({ settings, setSettings }) {
 
       <div style={{ marginBottom:24 }}>
         <div style={{ fontSize:12, color:'#888', letterSpacing:2, textTransform:'uppercase', marginBottom:14 }}>Rythme</div>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={{ fontSize:13, color:'#f0e6d0', display:'block', marginBottom:8 }}>Premier jour de la semaine</label>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {[['Dim',0],['Lun',1],['Mar',2],['Mer',3],['Jeu',4],['Ven',5],['Sam',6]].map(([label,val])=>(
+              <button key={val} type="button" onClick={()=>set('weekStartDay',val)}
+                style={{ padding:'6px 12px', borderRadius:20, border:'1px solid', fontSize:12, fontWeight:600, cursor:'pointer',
+                  background: form.weekStartDay===val?'rgba(201,168,76,0.2)':'rgba(255,255,255,0.04)',
+                  borderColor: form.weekStartDay===val?'#c9a84c':'rgba(255,255,255,0.1)',
+                  color: form.weekStartDay===val?'#c9a84c':'#555' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           {[{key:'workDaysPerWeek',label:'Jours de pratique / sem.',min:3,max:7},{key:'revisionDaysPerWeek',label:'Révisions / sem.',min:1,max:4}].map(({key,label,min,max})=>(
             <div key={key}>
@@ -1435,8 +1574,8 @@ function App() {
   );
 
   const TABS = [{id:'today',label:"Aujourd'hui",icon:'🎯'},{id:'library',label:'Bibliothèque',icon:'📚'},{id:'calendar',label:'Calendrier',icon:'📅'},{id:'settings',label:'Réglages',icon:'⚙️'}];
-  const weekSessions = sessions.filter(s=>s.validated&&s.weekKey===getWeekKey()).length;
-  const weekJoker = sessions.some(s=>s.joker&&s.weekKey===getWeekKey());
+  const weekSessions = sessions.filter(s=>s.validated&&s.weekKey===getWeekKey(new Date(), settings.weekStartDay??4)).length;
+  const weekJoker = sessions.some(s=>s.joker&&s.weekKey===getWeekKey(new Date(), settings.weekStartDay??4));
 
   return (
     <div style={{ minHeight:'100vh', minHeight:'100dvh', background:'#1a1a18', display:'flex', flexDirection:'column' }}>
