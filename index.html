@@ -1676,38 +1676,44 @@ function AuthScreen({ onAuth }) {
     }
   }, []);
 
-  const signIn = (silent = false) => {
-    if (!silent) { setLoading(true); setError(null); }
+  const signIn = () => {
+    setLoading(true); setError(null);
     try {
       const client = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPE,
         callback: resp => {
-          if (resp.error) {
-            if (!silent) { setError('Connexion échouée. Réessaie.'); setLoading(false); }
-            return;
-          }
+          if (resp.error) { setError('Connexion échouée. Réessaie.'); setLoading(false); return; }
           DriveDB.setToken(resp.access_token);
           sessionStorage.setItem('cadence_token', resp.access_token);
           sessionStorage.setItem('cadence_expiry', String(Date.now() + resp.expires_in * 1000));
-          // Flush any pending saves after token refresh
           DriveDB.flushPendingSaves().catch(console.error);
-          if (!silent) onAuth();
+          onAuth();
         }
       });
-      // Silent refresh (no popup) vs full login
-      client.requestAccessToken({ prompt: silent ? 'none' : '' });
-    } catch(e) { if (!silent) { setError('Google non disponible.'); setLoading(false); } }
+      client.requestAccessToken({ prompt: '' });
+    } catch(e) { setError('Google non disponible.'); setLoading(false); }
   };
 
-  // Auto-refresh token 5 min before expiry
+  // Auto-refresh token 5 min before expiry — silent, no popup
   useEffect(() => {
     const check = setInterval(() => {
       const expiry = parseInt(sessionStorage.getItem('cadence_expiry') || '0');
-      if (expiry && Date.now() > expiry - 5 * 60 * 1000) {
-        signIn(true); // silent refresh
-      }
-    }, 60000); // check every minute
+      if (!expiry || Date.now() < expiry - 5 * 60 * 1000) return;
+      try {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID, scope: SCOPE,
+          callback: resp => {
+            if (resp.error || !resp.access_token) return;
+            DriveDB.setToken(resp.access_token);
+            sessionStorage.setItem('cadence_token', resp.access_token);
+            sessionStorage.setItem('cadence_expiry', String(Date.now() + resp.expires_in * 1000));
+            DriveDB.flushPendingSaves().catch(console.error);
+          }
+        });
+        client.requestAccessToken({ prompt: 'none' });
+      } catch(_) {}
+    }, 60000);
     return () => clearInterval(check);
   }, []);
 
