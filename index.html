@@ -295,7 +295,7 @@ function generateSession(items, settings, sessions, dateStr) {
 
   const doRevision = isRevisionDay(dateStr, settings.revisionDaysPerWeek, sessions);
   if (doRevision) {
-    const rev = [...items.filter(i => i.category === 'morceau' && !i.isActive)]
+    const rev = [...items.filter(i => i.category === 'morceau' && !i.isActive && !i.isGroup && !i.paused)]
       .sort((a,b) => (a.lastRevised ? new Date(a.lastRevised) : new Date(0)) - (b.lastRevised ? new Date(b.lastRevised) : new Date(0)))[0];
     if (rev) blocks.push({ itemId: rev.id, title: rev.title, category: 'revision', plannedMin: Math.round(settings.revisionsWeeklyMin / settings.revisionDaysPerWeek), validated: false });
   }
