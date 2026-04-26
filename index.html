@@ -1324,7 +1324,7 @@ function CalendarView({ sessions, setSessions, settings }) {
           else if (s?.absent)          { bg='rgba(224,92,92,0.1)';   bc='rgba(224,92,92,0.2)';   color='#e05c5c'; }
           else if (isToday)            { bg='rgba(201,168,76,0.1)';  bc='rgba(201,168,76,0.4)';  color='#c9a84c'; }
           return (
-            <div key={i} onClick={() => { if(s&&(s.validated||partiallyDone)) setSelected(d); else openModal(d); }}
+            <div key={i} onClick={() => { if(s&&(s.validated||partiallyDone)) { setSelected(null); setTimeout(()=>setSelected(d),0); } else { setSelected(null); openModal(d); } }}
               style={{ borderRadius:10, padding:'6px 4px', textAlign:'center', background:bg, border:`1px solid ${bc}`, cursor:'pointer', minHeight:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2 }}>
               <span style={{ fontSize:13, fontWeight:isToday?700:400, color }}>{d}</span>
               {s?.validated && <span style={{ fontSize:9, color:'#5cba7d', fontFamily:'monospace' }}>{s.actualMin}'</span>}
@@ -1376,20 +1376,60 @@ function CalendarView({ sessions, setSessions, settings }) {
                   </div>
                 </div>
                 {s.blocks.map((block,i) => {
-                  const cat=CATEGORIES[block.category]||CATEGORIES.gammes;
-                  const m=block.validatedMastery&&MASTERY[block.validatedMastery];
+                  const cat = CATEGORIES[block.category] || CATEGORIES.gammes;
+                  const m = block.validatedMastery && MASTERY[block.validatedMastery];
+                  const done = !!block.validated;
+                  const timeMatch = done && block.actualMin === block.plannedMin;
+                  const timeDiff = done ? block.actualMin - block.plannedMin : null;
                   return (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'rgba(255,255,255,0.03)', borderLeft:'3px solid '+cat.color, borderRadius:8, marginBottom:6 }}>
-                      <span style={{fontSize:18}}>{cat.icon}</span>
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background: done ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.01)', borderLeft:'3px solid '+(done ? cat.color : 'rgba(255,255,255,0.1)'), borderRadius:8, marginBottom:6, opacity: done ? 1 : 0.5 }}>
+                      <span style={{fontSize:18}}>{done ? cat.icon : '○'}</span>
                       <div style={{flex:1}}>
-                        <div style={{fontSize:11,color:cat.color,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:1}}>{cat.label}</div>
-                        <div style={{fontSize:13,color:'#f0e6d0'}}>{block.title}</div>
-                        {m&&<div style={{fontSize:11,color:m.color,marginTop:1}}>{m.label}</div>}
+                        <div style={{fontSize:11, color: done ? cat.color : '#555', fontWeight:700, letterSpacing:1, textTransform:'uppercase', marginBottom:1}}>
+                          {cat.label}
+                          {block.isCatchup && <span style={{color:'#7b9cdf', fontSize:10, marginLeft:6}}>🔄 rattrapage</span>}
+                        </div>
+                        <div style={{fontSize:13, color: done ? '#f0e6d0' : '#666'}}>{block.title}</div>
+                        {done && m && <div style={{fontSize:11, color:m.color, marginTop:2}}>{m.label}</div>}
+                        {!done && <div style={{fontSize:11, color:'#555', marginTop:2}}>Non réalisé</div>}
                       </div>
-                      <div style={{fontSize:13,color:'#c9a84c',fontFamily:'monospace',fontWeight:700}}>{block.actualMin||block.plannedMin}'</div>
+                      <div style={{textAlign:'right'}}>
+                        {done ? (
+                          <>
+                            <div style={{fontSize:13, color: timeMatch?'#5cba7d':timeDiff>0?'#e0a83a':'#7b9cdf', fontFamily:'monospace', fontWeight:700}}>{block.actualMin}'</div>
+                            {!timeMatch && <div style={{fontSize:10, color:'#555', marginTop:1}}>prévu {block.plannedMin}'</div>}
+                          </>
+                        ) : (
+                          <div style={{fontSize:13, color:'#555', fontFamily:'monospace'}}>{block.plannedMin}'</div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
+
+                {/* Summary: planned vs actual */}
+                {(() => {
+                  const doneBlocks = s.blocks.filter(b => b.validated);
+                  const totalPlanned = s.blocks.reduce((a,b) => a+b.plannedMin, 0);
+                  const totalActual = doneBlocks.reduce((a,b) => a+(b.actualMin||0), 0);
+                  const notDone = s.blocks.length - doneBlocks.length;
+                  return (
+                    <div style={{ marginTop:10, padding:'10px 12px', background:'rgba(255,255,255,0.03)', borderRadius:8, display:'flex', gap:12, flexWrap:'wrap' }}>
+                      <div style={{textAlign:'center', flex:1}}>
+                        <div style={{fontSize:16, fontWeight:700, color:'#c9a84c', fontFamily:'monospace'}}>{totalActual}'</div>
+                        <div style={{fontSize:10, color:'#555'}}>réel</div>
+                      </div>
+                      <div style={{textAlign:'center', flex:1}}>
+                        <div style={{fontSize:16, fontWeight:700, color:'#888', fontFamily:'monospace'}}>{totalPlanned}'</div>
+                        <div style={{fontSize:10, color:'#555'}}>prévu</div>
+                      </div>
+                      <div style={{textAlign:'center', flex:1}}>
+                        <div style={{fontSize:16, fontWeight:700, color: notDone===0?'#5cba7d':'#e0a83a', fontFamily:'monospace'}}>{doneBlocks.length}/{s.blocks.length}</div>
+                        <div style={{fontSize:10, color:'#555'}}>blocs</div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>
