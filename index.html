@@ -1286,17 +1286,20 @@ function CalendarView({ sessions, setSessions, settings }) {
           const dateStr=`${vm}-${String(d).padStart(2,'0')}`;
           const s=getS(d); const isToday=dateStr===TODAY; const isPast=dateStr<TODAY;
           let bg='rgba(255,255,255,0.03)', bc='rgba(255,255,255,0.07)', color='#666';
+          const partiallyDone = s && !s.validated && s.blocks && s.blocks.some(b => b.validated);
           if (s?.validated) { bg='rgba(92,186,125,0.15)'; bc='rgba(92,186,125,0.3)'; color='#5cba7d'; }
+          else if (partiallyDone) { bg='rgba(92,186,125,0.07)'; bc='rgba(92,186,125,0.2)'; color='#5cba7d88'; }
           else if (s?.joker)           { bg='rgba(201,168,76,0.08)'; bc='rgba(201,168,76,0.2)';  color='#c9a84c'; }
           else if (s?.type==='off')     { bg='rgba(224,92,92,0.1)';   bc='rgba(224,92,92,0.25)';  color='#e05c5c'; }
           else if (s?.type==='alternatif') { bg='rgba(123,156,223,0.1)'; bc='rgba(123,156,223,0.25)'; color='#7b9cdf'; }
           else if (s?.absent)          { bg='rgba(224,92,92,0.1)';   bc='rgba(224,92,92,0.2)';   color='#e05c5c'; }
           else if (isToday)            { bg='rgba(201,168,76,0.1)';  bc='rgba(201,168,76,0.4)';  color='#c9a84c'; }
           return (
-            <div key={i} onClick={() => { if(s&&s.validated) setSelected(d); else openModal(d); }}
+            <div key={i} onClick={() => { if(s&&(s.validated||partiallyDone)) setSelected(d); else openModal(d); }}
               style={{ borderRadius:10, padding:'6px 4px', textAlign:'center', background:bg, border:`1px solid ${bc}`, cursor:'pointer', minHeight:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2 }}>
               <span style={{ fontSize:13, fontWeight:isToday?700:400, color }}>{d}</span>
               {s?.validated && <span style={{ fontSize:9, color:'#5cba7d', fontFamily:'monospace' }}>{s.actualMin}'</span>}
+              {partiallyDone && <span style={{ fontSize:9, color:'#5cba7d88', fontFamily:'monospace' }}>{s.blocks.filter(b=>b.validated).length}/{s.blocks.length}</span>}
               {s?.joker              && <span style={{ fontSize:11 }}>🃏</span>}
               {s?.type==='off'       && <span style={{ fontSize:11 }}>🚫</span>}
               {s?.type==='alternatif'&& <span style={{ fontSize:11 }}>🎒</span>}
@@ -1331,7 +1334,7 @@ function CalendarView({ sessions, setSessions, settings }) {
                 </div>
               </div>
             )}
-            {s?.validated && s.blocks && (
+            {s && (s.validated || (s.blocks && s.blocks.some(b=>b.validated))) && s.blocks && (
               <>
                 <div style={{ display:'flex', gap:10, marginBottom:14 }}>
                   <div style={{ background:'rgba(92,186,125,0.1)', border:'1px solid rgba(92,186,125,0.2)', borderRadius:10, padding:'8px 14px', flex:1, textAlign:'center' }}>
