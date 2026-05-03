@@ -161,7 +161,12 @@ function useStorage(key, defaultVal) {
         let data = await DriveDB.get(key + '.json');
         if (data !== null && data !== undefined) {
           if (key === 'pm_items' && Array.isArray(data))
-            data = data.map(i => i.category === 'technique_jazz' ? { ...i, category: 'langage_musical' } : i);
+            data = data.map(i => {
+              let item = i.category === 'technique_jazz' ? { ...i, category: 'langage_musical' } : {...i};
+              // Fix: items with a parentId are variants, never groups
+              if (item.parentId && item.isGroup) item.isGroup = false;
+              return item;
+            });
           if (key === 'pm_sessions' && Array.isArray(data))
             data = data.map(s => ({ ...s, blocks: Array.isArray(s.blocks) ? s.blocks.map(b => b.category === 'technique_jazz' ? { ...b, category: 'langage_musical' } : b) : s.blocks }));
           setVal(data);
@@ -331,19 +336,19 @@ function generateSession(items, settings, sessions, dateStr) {
   const catchupMin = calculateCatchup(sessions, settings, dateStr);
   const hasCatchup = catchupMin > 0;
   const blocks = [];
-  const gamme = pickItem(items.filter(i => i.category === 'gammes' && i.isActive && !i.isGroup && !i.paused), dateStr, maxDaysUnseen);
+  const gamme = pickItem(items.filter(i => i.category === 'gammes' && i.isActive && i.isGroup !== true && !i.paused), dateStr, maxDaysUnseen);
   if (gamme) {
     const gammeFamily = gamme.parentId ? items.find(i => i.id === gamme.parentId) : null;
     blocks.push({ itemId: gamme.id, title: gamme.title, category: 'gammes', plannedMin: settings.gammesDailyMin, validated: false, familyName: gammeFamily?.title || null });
   }
 
-  const lang = pickItem(items.filter(i => i.category === 'langage_musical' && i.isActive && !i.isGroup && !i.paused), dateStr, maxDaysUnseen);
+  const lang = pickItem(items.filter(i => i.category === 'langage_musical' && i.isActive && i.isGroup !== true && !i.paused), dateStr, maxDaysUnseen);
   if (lang) {
     const langFamily = lang.parentId ? items.find(i => i.id === lang.parentId) : null;
     blocks.push({ itemId: lang.id, title: lang.title, category: 'langage_musical', plannedMin: Math.round(settings.techJazzWeeklyMin / settings.workDaysPerWeek), validated: false, familyName: langFamily?.title || null });
   }
 
-  const morceau = pickItem(items.filter(i => i.category === 'morceau' && i.isActive && !i.isGroup && !i.paused), dateStr, maxDaysUnseen);
+  const morceau = pickItem(items.filter(i => i.category === 'morceau' && i.isActive && i.isGroup !== true && !i.paused), dateStr, maxDaysUnseen);
   if (morceau) {
     const morceauFamily = morceau.parentId ? items.find(i => i.id === morceau.parentId) : null;
     blocks.push({ itemId: morceau.id, title: morceau.title, category: 'morceau', plannedMin: (MASTERY[morceau.mastery] || MASTERY.fragile).timeMin, validated: false, familyName: morceauFamily ? morceauFamily.title : null });
@@ -351,7 +356,7 @@ function generateSession(items, settings, sessions, dateStr) {
 
   const doRevision = isRevisionDay(dateStr, settings.revisionDaysPerWeek, sessions);
   if (doRevision) {
-    const rev = [...items.filter(i => i.category === 'morceau' && !i.isActive && !i.isGroup && !i.paused)]
+    const rev = [...items.filter(i => i.category === 'morceau' && !i.isActive && i.isGroup !== true && !i.paused)]
       .sort((a,b) => (a.lastRevised ? new Date(a.lastRevised) : new Date(0)) - (b.lastRevised ? new Date(b.lastRevised) : new Date(0)))[0];
     if (rev) blocks.push({ itemId: rev.id, title: rev.title, category: 'revision', plannedMin: Math.round(settings.revisionsWeeklyMin / settings.revisionDaysPerWeek), validated: false });
   }
@@ -373,14 +378,14 @@ function generateSession(items, settings, sessions, dateStr) {
 
     // Try 2nd morceau first, then 2nd langage musical, then 2nd gamme
     const extraCandidates = [
-      ...items.filter(i => i.category==='morceau' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
-      ...items.filter(i => i.category==='langage_musical' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
-      ...items.filter(i => i.category==='gammes' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+      ...items.filter(i => i.category==='morceau' && i.isActive && i.isGroup!==true && !i.paused && !usedIds.has(i.id)),
+      ...items.filter(i => i.category==='langage_musical' && i.isActive && i.isGroup!==true && !i.paused && !usedIds.has(i.id)),
+      ...items.filter(i => i.category==='gammes' && i.isActive && i.isGroup!==true && !i.paused && !usedIds.has(i.id)),
     ];
     const extraPools = [
-      items.filter(i => i.category==='morceau' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
-      items.filter(i => i.category==='langage_musical' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
-      items.filter(i => i.category==='gammes' && i.isActive && !i.isGroup && !i.paused && !usedIds.has(i.id)),
+      items.filter(i => i.category==='morceau' && i.isActive && i.isGroup!==true && !i.paused && !usedIds.has(i.id)),
+      items.filter(i => i.category==='langage_musical' && i.isActive && i.isGroup!==true && !i.paused && !usedIds.has(i.id)),
+      items.filter(i => i.category==='gammes' && i.isActive && i.isGroup!==true && !i.paused && !usedIds.has(i.id)),
     ];
 
     let extraItem = null;
