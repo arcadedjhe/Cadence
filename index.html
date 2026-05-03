@@ -165,6 +165,10 @@ function useStorage(key, defaultVal) {
               let item = i.category === 'technique_jazz' ? { ...i, category: 'langage_musical' } : {...i};
               // Fix: items with a parentId are variants, never groups
               if (item.parentId && item.isGroup) item.isGroup = false;
+              // Fix: non-morceau items should always be active unless explicitly paused
+              if (item.category !== 'morceau' && !item.isGroup && item.isActive === undefined) {
+                item.isActive = true;
+              }
               return item;
             });
           if (key === 'pm_sessions' && Array.isArray(data))
@@ -1036,8 +1040,13 @@ function LibraryView({ items, setItems }) {
   const addItem = (form, parentId = null) => {
     const n = { ...form, id: Date.now().toString(), lastWorked: null, lastRevised: null };
     if (parentId) { n.parentId = parentId; n.isGroup = false; }
-    if (form.category !== 'morceau' && !parentId) n.isActive = true;
-    if (parentId) { const parent = items.find(i => i.id === parentId); if (parent) n.isActive = parent.isActive; }
+    // Non-morceau items are always active; morceau variants inherit parent's isActive
+    if (form.category !== 'morceau') {
+      n.isActive = true;
+    } else if (parentId) {
+      const parent = items.find(i => i.id === parentId);
+      n.isActive = parent ? !!parent.isActive : true;
+    }
     setItems(p => [...p, n]);
     setAdding(false);
     setAddingVariantTo(null);
@@ -1072,7 +1081,7 @@ function LibraryView({ items, setItems }) {
       {addingType === 'group' && (
         <GroupForm
           onSave={(title, category) => {
-            const n = { id: Date.now().toString(), title, category, isGroup: true };
+            const n = { id: Date.now().toString(), title, category, isGroup: true, isActive: true };
             setItems(p => [...p, n]);
             setAddingType(null);
           }}
