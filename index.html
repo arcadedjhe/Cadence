@@ -57,6 +57,7 @@ const DEFAULT_SETTINGS = {
   workDaysPerWeek: 6, gammesDailyMin: 8, techJazzWeeklyMin: 35,
   morceauxWeeklyMin: 60, revisionsWeeklyMin: 16, revisionDaysPerWeek: 2,
   reminderEnabled: false, reminderHour: 19, reminderMinute: 0,
+  timerSoundEnabled: true,
   alternatifDailyMin: 10,
   sessionCapMin: 50,
   maxDaysUnseenPriority: 5,
@@ -76,12 +77,17 @@ const DriveDB = {
   token: null, fileIds: {}, cache: {},
   setToken(t) { this.token = t; },
 
+  onTokenExpiredCallback: null,
+
   async req(url, opts = {}) {
     const res = await fetch(url, {
       ...opts,
       headers: { 'Authorization': `Bearer ${this.token}`, ...(opts.headers || {}) }
     });
-    if (res.status === 401) throw new Error('TOKEN_EXPIRED');
+    if (res.status === 401) {
+      if (this.onTokenExpiredCallback) this.onTokenExpiredCallback();
+      throw new Error('TOKEN_EXPIRED');
+    }
     return res;
   },
 
@@ -452,8 +458,30 @@ function ImageGallery({ images }) {
   );
 }
 
+// ─── SOUND ───────────────────────────────────────────────────────────────────
+function playTimerEndSound(enabled) {
+  if (!enabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Three ascending beeps
+    [0, 0.3, 0.6].forEach((delay, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 440 + i * 110; // A4, C#5, E5
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + delay + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.4);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.4);
+    });
+  } catch(e) { console.log('Audio not available:', e); }
+}
+
 // ─── TIMER HOOK (timestamp-based + notification) ─────────────────────────────
-function useTimer(plannedMin, label) {
+function useTimer(plannedMin, label, soundEnabled) {
   const totalSec = plannedMin * 60;
   const [secondsLeft, setSecondsLeft] = useState(totalSec);
   const [running, setRunning] = useState(false);
@@ -489,6 +517,7 @@ function useTimer(plannedMin, label) {
         setRunning(false);
         setFinished(true);
         cancelTimerNotification();
+        playTimerEndSound(soundEnabled);
         return;
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -543,7 +572,7 @@ function useTimer(plannedMin, label) {
 }
 
 // ─── BLOCK CARD ───────────────────────────────────────────────────────────────
-function BlockCard({ block, items, onValidate }) {
+function BlockCard({ block, items, onValidate, soundEnabled }) {
   const cat = CATEGORIES[block.category] || CATEGORIES.gammes;
   const item = items.find(i => i.id === block.itemId);
   const [open, setOpen] = useState(false);
@@ -551,7 +580,7 @@ function BlockCard({ block, items, onValidate }) {
   const [actualMin, setActualMin] = useState(String(block.actualMin || block.plannedMin));
   const [mastery, setMastery] = useState(block.validatedMastery || (item && item.mastery) || 'fragile');
   const done = !!block.validated;
-  const timer = useTimer(block.plannedMin, block.title);
+  const timer = useTimer(block.plannedMin, block.title, soundEnabled !== false);
 
   const handleOpen = () => {
     setActualMin(String(block.actualMin || block.plannedMin));
@@ -954,7 +983,7 @@ function TodayView({ items, settings, sessions, setSessions, setItems }) {
       )}
 
       {!isJoker && session?.blocks?.map((block, i) => (
-        <BlockCard key={i} block={block} items={items} onValidate={handleBlockValidate} />
+        <BlockCard key={i} block={block} items={items} onValidate={handleBlockValidate} soundEnabled={settings?.timerSoundEnabled !== false} />
       ))}
 
       {!isJoker && session && !allDone && (
@@ -1647,17 +1676,17 @@ function SettingsView({ settings, setSettings, forceSave, saveStatus }) {
       <div style={{ marginBottom:24 }}>
         <div style={{ fontSize:12, color:'#888', letterSpacing:2, textTransform:'uppercase', marginBottom:14 }}>Budgets hebdomadaires</div>
         {[
-          {key:'gammesDailyMin',label:'🎼 Gammes (min/jour)',max:20},
+          {key:'gammesDailyMin',label:'🎼 Gammes (min/jour)',max:20,step:1},
           {key:'techJazzWeeklyMin',label:'🎨 Langage musical (min/semaine)',max:120},
           {key:'morceauxWeeklyMin',label:'🎵 Morceaux (min/semaine)',max:180},
           {key:'revisionsWeeklyMin',label:'🔁 Révisions (min/semaine)',max:60},
-        ].map(({key,label,max}) => (
+        ].map(({key,label,max,step}) => (
           <div key={key} style={{ marginBottom:16 }}>
             <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
               <label style={{ fontSize:13, color:'#f0e6d0' }}>{label}</label>
               <span style={{ fontSize:13, color:'#c9a84c', fontFamily:'monospace', fontWeight:700 }}>{form[key]} min</span>
             </div>
-            <input type="range" min="5" max={max} step="5" value={form[key]} onChange={e=>set(key,parseInt(e.target.value))} style={{ width:'100%' }} />
+            <input type="range" min={key==='gammesDailyMin'?1:5} max={max} step={step||5} value={form[key]} onChange={e=>set(key,parseInt(e.target.value))} style={{ width:'100%' }} />
           </div>
         ))}
       </div>
@@ -1692,9 +1721,23 @@ function SettingsView({ settings, setSettings, forceSave, saveStatus }) {
       </div>
 
       <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:12, color:'#888', letterSpacing:2, textTransform:'uppercase', marginBottom:14 }}>Rappel quotidien 🔔</div>
+        <div style={{ fontSize:12, color:'#888', letterSpacing:2, textTransform:'uppercase', marginBottom:14 }}>Sons & Rappels</div>
         <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:16 }}>
-          {Notification.permission !== 'granted' ? (
+          {/* Timer sound toggle */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, padding:'12px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12 }}>
+          <div>
+            <div style={{ fontSize:13, color:'#f0e6d0' }}>🔔 Son à la fin du minuteur</div>
+            <div style={{ fontSize:11, color:'#555', marginTop:2 }}>Trois bips à la fin de chaque bloc</div>
+          </div>
+          <button type="button" onClick={() => set('timerSoundEnabled', !form.timerSoundEnabled)}
+            style={{ width:48, height:26, borderRadius:13, border:'none', cursor:'pointer', position:'relative', transition:'all 0.2s',
+              background: form.timerSoundEnabled ? '#c9a84c' : 'rgba(255,255,255,0.1)' }}>
+            <div style={{ width:20, height:20, borderRadius:'50%', background:'#fff', position:'absolute', top:3, transition:'all 0.2s',
+              left: form.timerSoundEnabled ? 25 : 3 }} />
+          </button>
+        </div>
+
+        {Notification.permission !== 'granted' ? (
             <button onClick={requestNotifPermission} style={{ width:'100%', padding:'12px', background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.3)', borderRadius:10, color:'#c9a84c', fontWeight:600, fontSize:14, cursor:'pointer' }}>
               🔔 Autoriser les notifications
             </button>
@@ -1795,17 +1838,28 @@ function App() {
   const [saveStatus, setSaveStatus] = useState(null);
   const [saveError, setSaveError] = useState(false);
 
+  const [needReauth, setNeedReauth] = useState(false);
+
   useEffect(() => {
     DriveDB.onSaveSuccess = () => {
       setSaveStatus('saved');
       setSaveError(false);
+      setNeedReauth(false);
       setTimeout(() => setSaveStatus(null), 2000);
     };
     DriveDB.onSaveError = () => {
       setSaveStatus('error');
       setSaveError(true);
     };
-    return () => { DriveDB.onSaveSuccess = null; DriveDB.onSaveError = null; };
+    DriveDB.onTokenExpiredCallback = () => {
+      setNeedReauth(true);
+      setSaveError(true);
+    };
+    return () => {
+      DriveDB.onSaveSuccess = null;
+      DriveDB.onSaveError = null;
+      DriveDB.onTokenExpiredCallback = null;
+    };
   }, []);
 
   const forceSave = async () => {
@@ -1883,15 +1937,29 @@ function App() {
 
       {/* Save error banner */}
       {saveError && (
-        <div style={{ background:'rgba(224,92,92,0.12)', borderBottom:'1px solid rgba(224,92,92,0.3)', padding:'10px 16px', display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ background:'rgba(224,92,92,0.12)', borderBottom:'1px solid rgba(224,92,92,0.3)', padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
           <span style={{fontSize:18}}>⚠️</span>
           <div style={{flex:1}}>
-            <div style={{fontSize:13, color:'#e05c5c', fontWeight:700}}>Sauvegarde échouée</div>
-            <div style={{fontSize:11, color:'#888', marginTop:1}}>Tes données ne sont pas enregistrées sur Drive</div>
+            <div style={{fontSize:13, color:'#e05c5c', fontWeight:700}}>
+              {needReauth ? 'Session expirée' : 'Sauvegarde échouée'}
+            </div>
+            <div style={{fontSize:11, color:'#888', marginTop:1}}>
+              {needReauth ? 'Reconnecte-toi pour continuer à sauvegarder' : 'Tes données ne sont pas enregistrées sur Drive'}
+            </div>
           </div>
-          <button onClick={forceSave} style={{ padding:'6px 12px', background:'rgba(224,92,92,0.2)', border:'1px solid rgba(224,92,92,0.4)', borderRadius:8, color:'#e05c5c', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-            Réessayer
-          </button>
+          {needReauth ? (
+            <button onClick={() => {
+              sessionStorage.removeItem('cadence_token');
+              sessionStorage.removeItem('cadence_expiry');
+              window.location.reload();
+            }} style={{ padding:'6px 12px', background:'rgba(224,92,92,0.2)', border:'1px solid rgba(224,92,92,0.4)', borderRadius:8, color:'#e05c5c', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+              🔑 Reconnecter
+            </button>
+          ) : (
+            <button onClick={forceSave} style={{ padding:'6px 12px', background:'rgba(224,92,92,0.2)', border:'1px solid rgba(224,92,92,0.4)', borderRadius:8, color:'#e05c5c', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+              Réessayer
+            </button>
+          )}
         </div>
       )}
 
