@@ -23,20 +23,11 @@ self.addEventListener('activate', (e) => {
 // ─── FETCH ────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', (e) => {
   const url = e.request.url;
-
-  // Laisse passer Google APIs sans interception
   if (url.includes('googleapis.com') || url.includes('accounts.google.com') || url.includes('unpkg.com') || url.includes('fonts.g')) return;
-
-  // Requêtes de NAVIGATION (ouverture de l'app) → toujours réseau d'abord, fallback cache
   if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(INDEX)
-        .catch(() => caches.match(INDEX))
-    );
+    e.respondWith(fetch(INDEX).catch(() => caches.match(INDEX)));
     return;
   }
-
-  // Autres ressources → cache d'abord, puis réseau
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
@@ -51,17 +42,17 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
-let notifTimer = null;
+// ─── DAILY REMINDER ───────────────────────────────────────────────────────────
+let reminderTimer = null;
 
-function scheduleNext(hour, minute) {
-  if (notifTimer) clearTimeout(notifTimer);
+function scheduleReminder(hour, minute) {
+  if (reminderTimer) clearTimeout(reminderTimer);
   const now = new Date();
   const next = new Date();
   next.setHours(hour, minute, 0, 0);
   if (next <= now) next.setDate(next.getDate() + 1);
   const delay = next.getTime() - now.getTime();
-  notifTimer = setTimeout(() => {
+  reminderTimer = setTimeout(() => {
     self.registration.showNotification('Cadence 🎵', {
       body: "Ta session de pratique t'attend !",
       icon: BASE + 'icon-192.png',
@@ -69,14 +60,42 @@ function scheduleNext(hour, minute) {
       renotify: true,
       vibrate: [200, 100, 200],
     });
-    scheduleNext(hour, minute);
+    scheduleReminder(hour, minute);
   }, delay);
 }
 
+// ─── TIMER NOTIFICATION ───────────────────────────────────────────────────────
+let timerTimeout = null;
+
+function scheduleTimerNotif(delayMs, label) {
+  if (timerTimeout) clearTimeout(timerTimeout);
+  timerTimeout = setTimeout(() => {
+    self.registration.showNotification('⏱ ' + label, {
+      body: 'Temps écoulé — passe au bloc suivant !',
+      icon: BASE + 'icon-192.png',
+      tag: 'timer-done',
+      renotify: true,
+      vibrate: [300, 100, 300, 100, 300],
+      requireInteraction: false,
+    });
+    timerTimeout = null;
+  }, delayMs);
+}
+
 self.addEventListener('message', (e) => {
-  if (e.data?.type === 'SCHEDULE_NOTIF') {
-    if (e.data.enabled) scheduleNext(e.data.hour, e.data.minute);
-    else if (notifTimer) { clearTimeout(notifTimer); notifTimer = null; }
+  if (!e.data) return;
+
+  if (e.data.type === 'SCHEDULE_NOTIF') {
+    if (e.data.enabled) scheduleReminder(e.data.hour, e.data.minute);
+    else if (reminderTimer) { clearTimeout(reminderTimer); reminderTimer = null; }
+  }
+
+  if (e.data.type === 'TIMER_NOTIF') {
+    scheduleTimerNotif(e.data.delayMs, e.data.label || 'Bloc terminé');
+  }
+
+  if (e.data.type === 'TIMER_CANCEL') {
+    if (timerTimeout) { clearTimeout(timerTimeout); timerTimeout = null; }
   }
 });
 
