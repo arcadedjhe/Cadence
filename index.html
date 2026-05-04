@@ -1560,7 +1560,7 @@ function CalendarView({ sessions, setSessions, settings }) {
 }
 
 // ─── SETTINGS VIEW ────────────────────────────────────────────────────────────
-function SettingsView({ settings, setSettings }) {
+function SettingsView({ settings, setSettings, forceSave, saveStatus }) {
   const [form, setForm] = useState(settings);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
@@ -1699,9 +1699,28 @@ function SettingsView({ settings, setSettings }) {
         ))}
       </div>
 
-      <button onClick={saveAndSchedule} style={{ width:'100%', padding:'14px', background:'#c9a84c', border:'none', borderRadius:12, color:'#1a1a18', fontWeight:700, fontSize:15, cursor:'pointer' }}>
-        Enregistrer
+      <button onClick={saveAndSchedule} style={{ width:'100%', padding:'14px', background:'#c9a84c', border:'none', borderRadius:12, color:'#1a1a18', fontWeight:700, fontSize:15, cursor:'pointer', marginBottom:12 }}>
+        Enregistrer les paramètres
       </button>
+
+      {/* Force save */}
+      <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'14px 16px' }}>
+        <div style={{ fontSize:12, color:'#888', letterSpacing:2, textTransform:'uppercase', marginBottom:10 }}>Sauvegarde Drive</div>
+        <div style={{ fontSize:12, color:'#555', marginBottom:12 }}>Force la réécriture complète de toutes tes données sur Google Drive — utile si tu suspectes une désynchronisation.</div>
+        <button onClick={forceSave} style={{
+          width:'100%', padding:'12px', borderRadius:10, border:'1px solid',
+          background: saveStatus==='saving'?'rgba(255,255,255,0.04)':saveStatus==='saved'?'rgba(92,186,125,0.12)':saveStatus==='error'?'rgba(224,92,92,0.12)':'rgba(255,255,255,0.05)',
+          borderColor: saveStatus==='saved'?'rgba(92,186,125,0.3)':saveStatus==='error'?'rgba(224,92,92,0.3)':'rgba(255,255,255,0.12)',
+          color: saveStatus==='saved'?'#5cba7d':saveStatus==='error'?'#e05c5c':'#888',
+          fontWeight:600, fontSize:14, cursor: saveStatus==='saving'?'default':'pointer',
+          display:'flex', alignItems:'center', justifyContent:'center', gap:8
+        }}>
+          {saveStatus==='saving' ? <><span style={{fontSize:16}}>⏳</span> Sauvegarde en cours…</> :
+           saveStatus==='saved'  ? <><span style={{fontSize:16}}>✓</span> Sauvegardé avec succès</> :
+           saveStatus==='error'  ? <><span style={{fontSize:16}}>⚠️</span> Erreur — réessayer</> :
+                                   <><span style={{fontSize:16}}>💾</span> Forcer la sauvegarde</>}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1712,18 +1731,38 @@ function App() {
   const [sessions, setSessions, sl] = useStorage('pm_sessions', []);
   const [settings, setSettings, stl] = useStorage('pm_settings', DEFAULT_SETTINGS);
   const [tab, setTab] = useState('today');
-  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  const [saveStatus, setSaveStatus] = useState(null);
+  const [saveError, setSaveError] = useState(false);
 
   useEffect(() => {
     DriveDB.onSaveSuccess = () => {
       setSaveStatus('saved');
+      setSaveError(false);
       setTimeout(() => setSaveStatus(null), 2000);
     };
     DriveDB.onSaveError = () => {
       setSaveStatus('error');
+      setSaveError(true);
     };
     return () => { DriveDB.onSaveSuccess = null; DriveDB.onSaveError = null; };
   }, []);
+
+  const forceSave = async () => {
+    setSaveStatus('saving');
+    try {
+      await Promise.all([
+        DriveDB.set('pm_items.json', items),
+        DriveDB.set('pm_sessions.json', sessions),
+        DriveDB.set('pm_settings.json', settings),
+      ]);
+      setSaveStatus('saved');
+      setSaveError(false);
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch(e) {
+      setSaveStatus('error');
+      setSaveError(true);
+    }
+  };
 
   // Schedule notification on load
   useEffect(() => {
@@ -1781,12 +1820,26 @@ function App() {
         </div>
       </div>
 
+      {/* Save error banner */}
+      {saveError && (
+        <div style={{ background:'rgba(224,92,92,0.12)', borderBottom:'1px solid rgba(224,92,92,0.3)', padding:'10px 16px', display:'flex', alignItems:'center', gap:12 }}>
+          <span style={{fontSize:18}}>⚠️</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13, color:'#e05c5c', fontWeight:700}}>Sauvegarde échouée</div>
+            <div style={{fontSize:11, color:'#888', marginTop:1}}>Tes données ne sont pas enregistrées sur Drive</div>
+          </div>
+          <button onClick={forceSave} style={{ padding:'6px 12px', background:'rgba(224,92,92,0.2)', border:'1px solid rgba(224,92,92,0.4)', borderRadius:8, color:'#e05c5c', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+            Réessayer
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       <div style={{ flex:1, padding:'20px 16px 80px', overflowY:'auto' }}>
         {tab==='today'    && <TodayView    items={items} settings={settings} sessions={sessions} setSessions={setSessions} setItems={setItems} />}
         {tab==='library'  && <LibraryView  items={items} setItems={setItems} />}
         {tab==='calendar' && <CalendarView sessions={sessions} setSessions={setSessions} settings={settings} />}
-        {tab==='settings' && <SettingsView settings={settings} setSettings={setSettings} />}
+        {tab==='settings' && <SettingsView settings={settings} setSettings={setSettings} forceSave={forceSave} saveStatus={saveStatus} />}
       </div>
     </div>
   );
