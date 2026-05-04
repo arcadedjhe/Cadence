@@ -452,46 +452,94 @@ function ImageGallery({ images }) {
   );
 }
 
-// ─── TIMER HOOK ──────────────────────────────────────────────────────────────
-function useTimer(plannedMin) {
-  const [secondsLeft, setSecondsLeft] = useState(plannedMin * 60);
+// ─── TIMER HOOK (timestamp-based + notification) ─────────────────────────────
+function useTimer(plannedMin, label) {
+  const totalSec = plannedMin * 60;
+  const [secondsLeft, setSecondsLeft] = useState(totalSec);
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
-  const intervalRef = useRef(null);
+  const startTimeRef = useRef(null);   // timestamp when started
+  const savedSecondsRef = useRef(totalSec); // seconds left when paused
+  const rafRef = useRef(null);
 
+  // Reset when plannedMin changes
   useEffect(() => {
-    setSecondsLeft(plannedMin * 60);
     setRunning(false);
     setFinished(false);
+    setSecondsLeft(totalSec);
+    savedSecondsRef.current = totalSec;
+    startTimeRef.current = null;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
   }, [plannedMin]);
 
+  // Tick using requestAnimationFrame + timestamps — survives screen wake
   useEffect(() => {
-    if (running) {
-      intervalRef.current = setInterval(() => {
-        setSecondsLeft(s => {
-          if (s <= 1) {
-            clearInterval(intervalRef.current);
-            setRunning(false);
-            setFinished(true);
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
-    } else {
-      clearInterval(intervalRef.current);
+    if (!running) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      return;
     }
-    return () => clearInterval(intervalRef.current);
+
+    startTimeRef.current = Date.now();
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      const left = Math.max(0, savedSecondsRef.current - elapsed);
+      setSecondsLeft(left);
+      if (left <= 0) {
+        setRunning(false);
+        setFinished(true);
+        cancelTimerNotification();
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [running]);
 
-  const toggle = () => { if (!finished) setRunning(r => !r); };
-  const reset  = () => { setRunning(false); setFinished(false); setSecondsLeft(plannedMin * 60); };
+  // Schedule notification when timer starts
+  const scheduleTimerNotification = (secondsFromNow, timerLabel) => {
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    navigator.serviceWorker.controller.postMessage({
+      type: 'TIMER_NOTIF',
+      delayMs: secondsFromNow * 1000,
+      label: timerLabel || 'Temps écoulé !',
+    });
+  };
+
+  const cancelTimerNotification = () => {
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    navigator.serviceWorker.controller.postMessage({ type: 'TIMER_CANCEL' });
+  };
+
+  const toggle = () => {
+    if (finished) return;
+    if (running) {
+      // Pause: save remaining seconds
+      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      savedSecondsRef.current = Math.max(0, savedSecondsRef.current - elapsed);
+      cancelTimerNotification();
+    } else {
+      // Resume: schedule notification for remaining time
+      scheduleTimerNotification(savedSecondsRef.current, label);
+    }
+    setRunning(r => !r);
+  };
+
+  const reset = () => {
+    setRunning(false);
+    setFinished(false);
+    setSecondsLeft(totalSec);
+    savedSecondsRef.current = totalSec;
+    startTimeRef.current = null;
+    cancelTimerNotification();
+  };
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
-  const pct = 1 - secondsLeft / (plannedMin * 60);
+  const pct = 1 - secondsLeft / totalSec;
 
-  return { mm, ss, pct, running, finished, toggle, reset };
+  return { mm, ss, pct, running, finished, toggle, reset, secondsLeft };
 }
 
 // ─── BLOCK CARD ───────────────────────────────────────────────────────────────
@@ -503,7 +551,7 @@ function BlockCard({ block, items, onValidate }) {
   const [actualMin, setActualMin] = useState(String(block.actualMin || block.plannedMin));
   const [mastery, setMastery] = useState(block.validatedMastery || (item && item.mastery) || 'fragile');
   const done = !!block.validated;
-  const timer = useTimer(block.plannedMin);
+  const timer = useTimer(block.plannedMin, block.title);
 
   const handleOpen = () => {
     setActualMin(String(block.actualMin || block.plannedMin));
@@ -659,15 +707,22 @@ function AlternatifView({ sessions, setSessions, settings }) {
   const [note, setNote] = useState(todaySession?.note || '');
   const [timerSec, setTimerSec] = useState(() => Math.max(0, remaining) * 60);
   const [running, setRunning] = useState(false);
-  const intervalRef = useRef(null);
+  const altStartRef = useRef(null);
+  const altSavedRef = useRef(Math.max(0, remaining) * 60);
+  const altRafRef = useRef(null);
 
   useEffect(() => {
-    if (running) {
-      intervalRef.current = setInterval(() => {
-        setTimerSec(s => { if (s <= 0) { clearInterval(intervalRef.current); setRunning(false); return 0; } return s - 1; });
-      }, 1000);
-    } else clearInterval(intervalRef.current);
-    return () => clearInterval(intervalRef.current);
+    if (!running) { if (altRafRef.current) cancelAnimationFrame(altRafRef.current); return; }
+    altStartRef.current = Date.now();
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - altStartRef.current) / 1000);
+      const left = Math.max(0, altSavedRef.current - elapsed);
+      setTimerSec(left);
+      if (left <= 0) { setRunning(false); return; }
+      altRafRef.current = requestAnimationFrame(tick);
+    };
+    altRafRef.current = requestAnimationFrame(tick);
+    return () => { if (altRafRef.current) cancelAnimationFrame(altRafRef.current); };
   }, [running]);
 
   const mm = String(Math.floor(timerSec / 60)).padStart(2, '0');
@@ -734,7 +789,13 @@ function AlternatifView({ sessions, setSessions, settings }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ fontSize: 42, fontFamily: 'monospace', fontWeight: 700, color: running ? '#f0e6d0' : '#555', letterSpacing: 2 }}>{mm}:{ss}</div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => setRunning(r => !r)} style={{ width: 52, height: 52, borderRadius: 14, border: 'none', background: running ? 'rgba(224,92,92,0.15)' : 'rgba(201,168,76,0.15)', color: running ? '#e05c5c' : '#c9a84c', cursor: 'pointer', fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button onClick={() => {
+              if (running) {
+                const elapsed = Math.floor((Date.now() - altStartRef.current) / 1000);
+                altSavedRef.current = Math.max(0, altSavedRef.current - elapsed);
+              }
+              setRunning(r => !r);
+            }} style={{ width: 52, height: 52, borderRadius: 14, border: 'none', background: running ? 'rgba(224,92,92,0.15)' : 'rgba(201,168,76,0.15)', color: running ? '#e05c5c' : '#c9a84c', cursor: 'pointer', fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {running ? '⏸' : '▶'}
             </button>
             <button onClick={() => { setRunning(false); setTimerSec(remaining * 60); }} style={{ width: 52, height: 52, borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#555', cursor: 'pointer', fontSize: 20 }}>↺</button>
