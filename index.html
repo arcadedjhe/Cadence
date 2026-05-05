@@ -238,9 +238,13 @@ function calculateCatchup(sessions, settings, dateStr) {
   }
 
   // Count catchup minutes already done in validated sessions this week
-  // A validated session with catchupMin > 0 means it already covered some missed days
+  // Use date range instead of weekKey to avoid mismatch issues
+  const weekStartStr = weekKey;
+  const weekEndDate = new Date(weekStart); weekEndDate.setDate(weekEndDate.getDate() + 6);
+  const weekEndStr = weekEndDate.toISOString().slice(0, 10);
+
   const alreadyCaughtUpMin = sessions
-    .filter(s => s.weekKey === weekKey && s.validated && s.catchupMin > 0 && s.date < dateStr)
+    .filter(s => s.validated && s.catchupMin > 0 && s.date >= weekStartStr && s.date <= weekEndStr && s.date < dateStr)
     .reduce((a, s) => a + (s.catchupMin || 0), 0);
 
   // Count missed days
