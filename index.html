@@ -227,16 +227,23 @@ function calculateCatchup(sessions, settings, dateStr) {
   const weekKey = getWeekKey(new Date(dateStr), weekStartDay);
   const weekStart = new Date(weekKey + 'T12:00:00');
 
-  // Get all days of the week up to (not including) today
   const today = new Date(dateStr + 'T12:00:00');
+  const EXEMPT_TYPES = ['off', 'alternatif'];
+
+  // Get all past days of the week
   const pastDays = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(weekStart); d.setDate(d.getDate() + i);
     if (d < today) pastDays.push(d.toISOString().slice(0, 10));
   }
 
-  // Count missed days (no session, not off, not joker, not alternatif)
-  const EXEMPT_TYPES = ['off', 'alternatif'];
+  // Count catchup minutes already done in validated sessions this week
+  // A validated session with catchupMin > 0 means it already covered some missed days
+  const alreadyCaughtUpMin = sessions
+    .filter(s => s.weekKey === weekKey && s.validated && s.catchupMin > 0 && s.date < dateStr)
+    .reduce((a, s) => a + (s.catchupMin || 0), 0);
+
+  // Count missed days
   let missedDays = 0;
   for (const ds of pastDays) {
     const s = sessions.find(s => s.date === ds);
@@ -245,15 +252,19 @@ function calculateCatchup(sessions, settings, dateStr) {
     }
   }
 
-  // Cap at 5 consecutive missed days
   missedDays = Math.min(missedDays, 5);
   if (missedDays === 0) return 0;
 
-  // Total debt = missed * (1/3 of daily target ~30min = 10min)
+  // Total debt
   const dailyDebt = Math.round((settings.gammesDailyMin || 8) +
     Math.round((settings.techJazzWeeklyMin || 35) / (settings.workDaysPerWeek || 6)) +
-    10); // ~25min base, 1/3 ≈ 8-10min
-  const totalDebt = missedDays * Math.round(dailyDebt / 3);
+    10);
+  const debtPerDay = Math.round(dailyDebt / 3);
+  const totalDebt = missedDays * debtPerDay;
+
+  // Subtract already caught up minutes
+  const remainingDebt = Math.max(0, totalDebt - alreadyCaughtUpMin);
+  if (remainingDebt === 0) return 0;
 
   // Remaining days in week including today
   const remainingDays = [];
@@ -263,8 +274,7 @@ function calculateCatchup(sessions, settings, dateStr) {
     if (ds >= dateStr) remainingDays.push(ds);
   }
 
-  // Spread debt over remaining days
-  return remainingDays.length > 0 ? Math.round(totalDebt / remainingDays.length) : 0;
+  return remainingDays.length > 0 ? Math.round(remainingDebt / remainingDays.length) : 0;
 }
 const TODAY = toDateStr();
 
