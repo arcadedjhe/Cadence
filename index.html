@@ -248,12 +248,13 @@ function calculateCatchup(sessions, settings, dateStr) {
     .reduce((a, s) => a + (s.catchupMin || 0), 0);
 
   // Count missed days
+  // A day is NOT missed if: validated, joker, off/alternatif, OR partially done (at least 1 block validated)
   let missedDays = 0;
   for (const ds of pastDays) {
-    const s = sessions.find(s => s.date === ds);
-    if (!s || (!s.validated && !s.joker && !EXEMPT_TYPES.includes(s.type))) {
-      missedDays++;
-    }
+    const s = sessions.find(ss => ss.date === ds);
+    const partiallyDone = s && s.blocks && s.blocks.some(b => b.validated);
+    const isMissed = !s || (!s.validated && !s.joker && !EXEMPT_TYPES.includes(s.type) && !partiallyDone);
+    if (isMissed) missedDays++;
   }
 
   missedDays = Math.min(missedDays, 5);
@@ -268,6 +269,7 @@ function calculateCatchup(sessions, settings, dateStr) {
 
   // Subtract already caught up minutes
   const remainingDebt = Math.max(0, totalDebt - alreadyCaughtUpMin);
+  console.log('[Catchup debug]', { missedDays, totalDebt, alreadyCaughtUpMin, remainingDebt, weekStartStr, weekEndStr });
   if (remainingDebt === 0) return 0;
 
   // Remaining days in week including today
