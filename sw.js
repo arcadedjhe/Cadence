@@ -75,8 +75,13 @@ function scheduleTimerNotif(delayMs, label) {
       icon: BASE + 'icon-192.png',
       tag: 'timer-done',
       renotify: true,
-      vibrate: [300, 100, 300, 100, 300],
-      requireInteraction: false,
+      requireInteraction: true,  // stays on screen until dismissed
+      vibrate: [500, 200, 500, 200, 500],
+      silent: false,
+      actions: [
+        { action: 'open', title: '▶ Ouvrir Cadence' }
+      ],
+      data: { url: BASE + 'index.html' }
     });
     timerTimeout = null;
   }, delayMs);
