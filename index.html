@@ -1451,9 +1451,14 @@ function CalendarView({ sessions, setSessions, settings }) {
           else if (isToday)            { bg='rgba(201,168,76,0.1)';  bc='rgba(201,168,76,0.4)';  color='#c9a84c'; }
           return (
             <div key={i} onClick={() => {
-                if (s && (s.validated || partiallyDone || s.type==='alternatif' || s.type==='off' || s.joker)) {
+                if (s && s.validated) {
+                  // Validated sessions → detail panel
+                  setSelected(null); setTimeout(()=>setSelected(d), 0);
+                } else if (s && s.type==='alternatif') {
+                  // Alternatif days → detail panel (shows period)
                   setSelected(null); setTimeout(()=>setSelected(d), 0);
                 } else {
+                  // Off, joker, partial, empty → action modal (can edit/delete)
                   setSelected(null); openModal(d);
                 }
               }}
