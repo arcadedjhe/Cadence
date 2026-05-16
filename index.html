@@ -888,11 +888,90 @@ function AlternatifView({ sessions, setSessions, settings }) {
   );
 }
 
+// ─── EXTRA EXERCISE PANEL ────────────────────────────────────────────────────
+function ExtraExercisePanel({ items, onAdd, onClose }) {
+  const [category, setCategory] = useState('gammes');
+  const [selectedId, setSelectedId] = useState('');
+  const [timeMin, setTimeMin] = useState('10');
+  const [mastery, setMastery] = useState('fragile');
+
+  const availableItems = items.filter(i => i.category === category && i.isGroup !== true && !i.paused);
+
+  const handleAdd = () => {
+    const item = items.find(i => i.id === selectedId);
+    if (!item) return;
+    onAdd({
+      itemId: item.id,
+      title: item.title,
+      category: item.category,
+      familyName: item.parentId ? (items.find(p => p.id === item.parentId)?.title || null) : null,
+      actualMin: parseInt(timeMin) || 10,
+      mastery,
+      extra: true,
+    });
+    setSelectedId('');
+    setTimeMin('10');
+  };
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: 18, marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: '#c9a84c', fontWeight: 700, letterSpacing: 1 }}>+ EXERCICE LIBRE</div>
+        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 18 }}>×</button>
+      </div>
+
+      {/* Category */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {Object.entries(CATEGORIES).map(([k, v]) => (
+          <button key={k} onClick={() => { setCategory(k); setSelectedId(''); }} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: category === k ? v.color + '20' : 'transparent', borderColor: category === k ? v.color : 'rgba(255,255,255,0.1)', color: category === k ? v.color : '#555' }}>
+            {v.icon} {v.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Item selector */}
+      <div style={{ marginBottom: 12 }}>
+        <select value={selectedId} onChange={e => setSelectedId(e.target.value)}
+          style={{ width: '100%', background: '#2a2a28', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '10px 12px', color: selectedId ? '#f0e6d0' : '#555', fontSize: 13, outline: 'none' }}>
+          <option value=''>Choisir un exercice...</option>
+          {availableItems.map(i => (
+            <option key={i.id} value={i.id}>{i.title}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Time */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {[5, 10, 15, 20, 30].map(v => (
+          <button key={v} onClick={() => setTimeMin(String(v))} style={{ flex: 1, padding: '7px 4px', borderRadius: 8, border: '1px solid', fontSize: 12, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer', background: timeMin === String(v) ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)', borderColor: timeMin === String(v) ? '#c9a84c' : 'rgba(255,255,255,0.1)', color: timeMin === String(v) ? '#c9a84c' : '#888' }}>{v}'</button>
+        ))}
+        <input type="number" min="1" max="120" value={timeMin} onChange={e => setTimeMin(e.target.value)}
+          style={{ width: 52, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '7px 6px', color: '#f0e6d0', fontSize: 13, fontFamily: 'monospace', outline: 'none', textAlign: 'center' }} />
+      </div>
+
+      {/* Mastery */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {Object.entries(MASTERY).map(([k, m]) => (
+          <button key={k} onClick={() => setMastery(k)} style={{ flex: 1, padding: '7px 4px', borderRadius: 10, border: '1px solid', fontSize: 11, fontWeight: 700, cursor: 'pointer', textAlign: 'center', background: mastery === k ? m.color + '25' : 'rgba(255,255,255,0.03)', borderColor: mastery === k ? m.color : 'rgba(255,255,255,0.08)', color: mastery === k ? m.color : '#555' }}>
+            <div style={{ fontSize: 14, marginBottom: 2 }}>{k === 'non_maitrise' ? '🔴' : k === 'fragile' ? '🟡' : '🟢'}</div>
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      <button onClick={handleAdd} disabled={!selectedId} style={{ width: '100%', padding: '11px', background: selectedId ? '#c9a84c' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 10, color: selectedId ? '#1a1a18' : '#555', fontWeight: 700, fontSize: 14, cursor: selectedId ? 'pointer' : 'default' }}>
+        ✓ Ajouter à la session
+      </button>
+    </div>
+  );
+}
+
 // ─── TODAY VIEW ───────────────────────────────────────────────────────────────
 function TodayView({ items, settings, sessions, setSessions, setItems }) {
   const existing = sessions.find(s => s.date === TODAY);
   const [session, setSession] = useState(existing || null);
   const [generated, setGenerated] = useState(!!existing);
+  const [showExtra, setShowExtra] = useState(false);
   const thisWeek = getWeekKey(new Date(), settings?.weekStartDay ?? 4);
   const jokerUsed = sessions.some(s => s.weekKey === thisWeek && s.joker && s.date !== TODAY);
   const isJoker = !!existing?.joker;
@@ -935,6 +1014,18 @@ function TodayView({ items, settings, sessions, setSessions, setItems }) {
           return { ...item, mastery: newMastery||item.mastery, lastWorked: TODAY, lastRevised: block?.category==='revision'?TODAY:item.lastRevised };
         }));
       }
+      return updated;
+    });
+  };
+
+  const handleAddExtra = (extra) => {
+    setSession(prev => {
+      if (!prev) return prev;
+      const extraBlock = { ...extra, plannedMin: extra.actualMin, validated: true, validatedMastery: extra.mastery };
+      const updated = { ...prev, blocks: [...prev.blocks, extraBlock] };
+      setSessions(p => [...p.filter(s => s.date !== TODAY), updated]);
+      // Update lastWorked and mastery on the item
+      setItems(p => p.map(i => i.id === extra.itemId ? { ...i, lastWorked: TODAY, mastery: extra.mastery } : i));
       return updated;
     });
   };
@@ -1016,6 +1107,44 @@ function TodayView({ items, settings, sessions, setSessions, setItems }) {
                 <span>🃏</span> Joker
               </button>
           }
+        </div>
+      )}
+
+      {/* Extra exercises added freely */}
+      {session && (() => {
+        const extraBlocks = session.blocks.filter(b => b.extra);
+        if (!extraBlocks.length) return null;
+        return (
+          <div style={{ marginTop: 8, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: 11, color: '#888', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Exercices libres</div>
+            {extraBlocks.map((block, i) => {
+              const cat = CATEGORIES[block.category] || CATEGORIES.gammes;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: 'rgba(201,168,76,0.05)', borderLeft: '3px solid rgba(201,168,76,0.3)', borderRadius: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 18 }}>{cat.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>{cat.label}{block.familyName ? ` · ${block.familyName}` : ''}</div>
+                    <div style={{ fontSize: 13, color: '#f0e6d0' }}>{block.title}</div>
+                    {block.mastery && <div style={{ fontSize: 11, color: (MASTERY[block.mastery]||MASTERY.fragile).color, marginTop: 1 }}>{(MASTERY[block.mastery]||MASTERY.fragile).label}</div>}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#c9a84c', fontFamily: 'monospace', fontWeight: 700 }}>{block.actualMin}'</div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* Add extra exercise button */}
+      {session && !isJoker && (
+        <div style={{ marginTop: 16 }}>
+          {!showExtra ? (
+            <button onClick={() => setShowExtra(true)} style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px dashed rgba(201,168,76,0.3)', borderRadius: 10, color: '#c9a84c', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>+</span> Ajouter un exercice libre
+            </button>
+          ) : (
+            <ExtraExercisePanel items={items} onAdd={handleAddExtra} onClose={() => setShowExtra(false)} />
+          )}
         </div>
       )}
 
