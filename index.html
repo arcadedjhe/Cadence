@@ -1534,6 +1534,7 @@ function CalendarView({ sessions, setSessions, settings }) {
   const clearDay = (dateStr) => {
     setSessions(p => p.filter(s => s.date !== dateStr));
     setDayModal(null);
+    setSelected(null);
   };
 
   const markOff = (dateStr) => {
@@ -1760,9 +1761,17 @@ function CalendarView({ sessions, setSessions, settings }) {
 
           {/* Current status if any */}
           {dayModal.existing && (
-            <div style={{ fontSize:12, color:'#888', marginBottom:14, padding:'8px 12px', background:'rgba(255,255,255,0.03)', borderRadius:8 }}>
-              Actuellement : {dayModal.existing.type==='off'?'🚫 Off total':dayModal.existing.type==='alternatif'?'🎒 Travail alternatif':dayModal.existing.joker?'🃏 Joker':'—'}
-              <button onClick={() => clearDay(dayModal.dateStr)} style={{ marginLeft:12, fontSize:11, color:'#e05c5c', background:'transparent', border:'none', cursor:'pointer' }}>× Supprimer</button>
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, color:'#888', marginBottom:8 }}>Marqué actuellement :</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', background:'rgba(255,255,255,0.04)', borderRadius:10 }}>
+                <span style={{ fontSize:13, color:'#f0e6d0' }}>
+                  {dayModal.existing.type==='off' ? '🚫 Off total' : dayModal.existing.type==='alternatif' ? '🎒 Travail alternatif' : dayModal.existing.joker ? '🃏 Joker' : '—'}
+                </span>
+                <button onClick={() => clearDay(dayModal.dateStr)}
+                  style={{ padding:'6px 14px', background:'rgba(224,92,92,0.15)', border:'1px solid rgba(224,92,92,0.3)', borderRadius:8, color:'#e05c5c', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                  🗑 Supprimer
+                </button>
+              </div>
             </div>
           )}
 
